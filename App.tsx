@@ -1,0 +1,285 @@
+
+import React, { useState, useEffect } from 'react';
+import { Routes, Route, Link, useLocation, Navigate, useParams, useNavigate } from 'react-router-dom';
+import { 
+  LayoutDashboard, 
+  FileText, 
+  Receipt, 
+  Wallet, 
+  Settings, 
+  Menu, 
+  Users,
+  Moon,
+  Sun,
+  ClipboardList,
+  LogOut,
+  ArrowLeft,
+  FileBadge // Novo ícone para Atas
+} from 'lucide-react';
+
+import Dashboard from './pages/Dashboard';
+import Atas from './pages/Atas'; // Nova página
+import Contracts from './pages/Contracts';
+import Invoices from './pages/Invoices';
+import Financial from './pages/Financial';
+import Suppliers from './pages/Suppliers';
+import ServiceOrders from './pages/ServiceOrders';
+import SettingsPage from './pages/Settings';
+import Login from './pages/Login';
+import AdminHome from './pages/AdminHome';
+import Landing from './pages/Landing'; 
+import { AppState, SystemUser } from './types';
+
+// Layout do Cliente (Tenant)
+const TenantLayout: React.FC = () => {
+  const { tenantId } = useParams<{ tenantId: string }>();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [loading, setLoading] = useState(true);
+
+  // Auth local para o tenant
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return sessionStorage.getItem(`auth_${tenantId}`) === 'true';
+  });
+  
+  // Usuário logado
+  const [currentUser, setCurrentUser] = useState<SystemUser | null>(null);
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const saved = localStorage.getItem('theme');
+    return saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  });
+
+  // Estado principal
+  const [state, setState] = useState<AppState | null>(null);
+
+  // 1. Carregar Banco de Dados do Cliente
+  useEffect(() => {
+    const dbKey = `erp_db_${tenantId}`;
+    const savedData = localStorage.getItem(dbKey);
+
+    if (savedData) {
+      const parsedData = JSON.parse(savedData);
+      
+      // Fallback para bancos antigos
+      if (!parsedData.users) {
+         parsedData.users = [{
+            id: 'admin-legacy',
+            name: 'Admin Legado',
+            username: 'admin',
+            password: 'admin',
+            role: 'admin',
+            createdAt: new Date().toISOString()
+         }];
+      }
+      if (!parsedData.logs) parsedData.logs = [];
+      if (!parsedData.atas) parsedData.atas = []; // Inicializa atas se não existir
+
+      setState(parsedData);
+      setLoading(false);
+    } else {
+      alert("Entidade não encontrada. Verifique o endereço digitado.");
+      navigate('/');
+    }
+  }, [tenantId, navigate]);
+
+  // 2. Salvar Automaticamente quando o state muda
+  useEffect(() => {
+    if (state && tenantId) {
+      localStorage.setItem(`erp_db_${tenantId}`, JSON.stringify(state));
+    }
+  }, [state, tenantId]);
+
+  // Tema
+  useEffect(() => {
+    const root = window.document.documentElement;
+    if (isDarkMode) {
+      root.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      root.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [isDarkMode]);
+
+  const toggleTheme = () => setIsDarkMode(!isDarkMode);
+
+  const handleLogin = (user: SystemUser) => {
+    setIsAuthenticated(true);
+    setCurrentUser(user);
+    sessionStorage.setItem(`auth_${tenantId}`, 'true');
+    sessionStorage.setItem(`user_${tenantId}`, JSON.stringify(user));
+
+    if (state) {
+      const newLog = {
+        id: Math.random().toString(36).substr(2, 9),
+        timestamp: new Date().toISOString(),
+        action: 'LOGIN',
+        details: 'Usuário realizou login no sistema',
+        user: user.username
+      };
+      setState(prev => prev ? ({ ...prev, logs: [newLog, ...(prev.logs || [])] }) : null);
+    }
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setCurrentUser(null);
+    sessionStorage.removeItem(`auth_${tenantId}`);
+    sessionStorage.removeItem(`user_${tenantId}`);
+  };
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">Carregando base de dados...</div>;
+
+  if (!state) return null;
+
+  if (!isAuthenticated) {
+    return (
+      <div className="relative">
+         <button 
+            onClick={() => navigate('/')} 
+            className="absolute top-4 left-4 z-50 flex items-center gap-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white transition-colors bg-white/50 dark:bg-black/50 p-2 rounded-lg"
+         >
+           <ArrowLeft size={20} /> Ir para Início
+         </button>
+         <Login 
+            onLogin={handleLogin} 
+            users={state.users} 
+            entityName={state.entity.name} 
+            isDarkMode={isDarkMode} 
+            toggleTheme={toggleTheme} 
+         />
+      </div>
+    );
+  }
+
+  const activeLink = (path: string) => 
+    location.pathname.endsWith(path) 
+      ? "bg-blue-600 text-white shadow-md shadow-blue-500/30 dark:shadow-blue-900/20" 
+      : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-blue-600 dark:hover:text-blue-400";
+
+  const p = `/${tenantId}`;
+
+  return (
+    <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-300">
+      
+      {/* Sidebar Mobile Overlay */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden" 
+          onClick={() => setSidebarOpen(false)} 
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside className={`fixed inset-y-0 left-0 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 z-50 transform transition-transform duration-300 lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="h-full flex flex-col p-6">
+          <div className="flex items-center gap-3 mb-8 px-2">
+            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-blue-600/20">
+              G
+            </div>
+            <div className="overflow-hidden">
+              <h1 className="font-bold text-slate-800 dark:text-white leading-tight truncate">Gestão Pública</h1>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider truncate">{state.entity.name}</p>
+            </div>
+          </div>
+
+          <nav className="flex-1 space-y-2">
+            <Link to={`${p}/dashboard`} onClick={() => setSidebarOpen(false)} className={`flex items-center gap-3 p-3 rounded-xl transition-all font-medium ${activeLink('dashboard')}`}>
+              <LayoutDashboard size={20} />
+              Painel de Controle
+            </Link>
+            <Link to={`${p}/suppliers`} onClick={() => setSidebarOpen(false)} className={`flex items-center gap-3 p-3 rounded-xl transition-all font-medium ${activeLink('suppliers')}`}>
+              <Users size={20} />
+              Fornecedores
+            </Link>
+            {/* Nova Aba ATAS */}
+            <Link to={`${p}/atas`} onClick={() => setSidebarOpen(false)} className={`flex items-center gap-3 p-3 rounded-xl transition-all font-medium ${activeLink('atas')}`}>
+              <FileBadge size={20} />
+              ATAS / Registro de Preço
+            </Link>
+            <Link to={`${p}/contracts`} onClick={() => setSidebarOpen(false)} className={`flex items-center gap-3 p-3 rounded-xl transition-all font-medium ${activeLink('contracts')}`}>
+              <FileText size={20} />
+              Contratos
+            </Link>
+            <Link to={`${p}/service-orders`} onClick={() => setSidebarOpen(false)} className={`flex items-center gap-3 p-3 rounded-xl transition-all font-medium ${activeLink('service-orders')}`}>
+              <ClipboardList size={20} />
+              Ordens de Serviço
+            </Link>
+            <Link to={`${p}/invoices`} onClick={() => setSidebarOpen(false)} className={`flex items-center gap-3 p-3 rounded-xl transition-all font-medium ${activeLink('invoices')}`}>
+              <Receipt size={20} />
+              Notas Fiscais
+            </Link>
+            <Link to={`${p}/financial`} onClick={() => setSidebarOpen(false)} className={`flex items-center gap-3 p-3 rounded-xl transition-all font-medium ${activeLink('financial')}`}>
+              <Wallet size={20} />
+              Financeiro
+            </Link>
+          </nav>
+
+          <div className="mt-auto pt-6 border-t border-slate-100 dark:border-slate-800 space-y-3">
+            <button 
+              onClick={toggleTheme}
+              className="flex items-center gap-3 w-full p-3 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all font-medium"
+            >
+              {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
+              {isDarkMode ? 'Modo Claro' : 'Modo Escuro'}
+            </button>
+            <Link 
+              to={`${p}/settings`}
+              onClick={() => setSidebarOpen(false)}
+              className={`flex items-center gap-3 w-full p-3 rounded-xl transition-all font-medium ${activeLink('settings')}`}
+            >
+              <Settings size={20} />
+              Configurações
+            </Link>
+            <button 
+              onClick={handleLogout}
+              className="flex items-center gap-3 w-full p-3 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all font-medium mt-2"
+            >
+              <LogOut size={20} />
+              Sair
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 lg:ml-64 p-4 lg:p-8 overflow-hidden">
+        <header className="flex items-center justify-between mb-8 lg:hidden">
+          <button onClick={() => setSidebarOpen(true)} className="p-2 bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200">
+            <Menu size={24} />
+          </button>
+          <div className="font-bold text-slate-800 dark:text-white uppercase tracking-tighter truncate max-w-[200px]">{state.entity.name}</div>
+          <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700" />
+        </header>
+
+        <Routes>
+          <Route path="/" element={<Navigate to={`${p}/dashboard`} replace />} />
+          <Route path="/dashboard" element={<Dashboard state={state} isDarkMode={isDarkMode} />} />
+          <Route path="/suppliers" element={<Suppliers state={state} setState={setState} />} />
+          <Route path="/atas" element={<Atas state={state} setState={setState} />} /> {/* Rota Atas */}
+          <Route path="/contracts/*" element={<Contracts state={state} setState={setState} />} />
+          <Route path="/service-orders" element={<ServiceOrders state={state} setState={setState} />} />
+          <Route path="/invoices/*" element={<Invoices state={state} setState={setState} />} />
+          <Route path="/financial/*" element={<Financial state={state} setState={setState} />} />
+          <Route path="/settings" element={<SettingsPage state={state} setState={setState} />} />
+          <Route path="*" element={<Navigate to={`${p}/dashboard`} replace />} />
+        </Routes>
+      </main>
+    </div>
+  );
+};
+
+
+const App: React.FC = () => {
+  return (
+    <Routes>
+      <Route path="/" element={<Landing />} />
+      <Route path="/master-panel" element={<AdminHome />} />
+      <Route path="/:tenantId/*" element={<TenantLayout />} />
+    </Routes>
+  );
+};
+
+export default App;
