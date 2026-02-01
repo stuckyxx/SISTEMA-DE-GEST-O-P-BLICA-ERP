@@ -17,6 +17,7 @@ import {
   CalendarCheck
 } from 'lucide-react';
 import { AppState, Invoice, Payment, BankAccount } from '../types';
+import { formatCurrency } from '../utils/format';
 
 interface FinancialProps {
   state: AppState;
@@ -144,7 +145,7 @@ const Financial: React.FC<FinancialProps> = ({ state, setState }) => {
               <span className="font-bold text-slate-600 dark:text-slate-400 uppercase text-xs tracking-widest">A Pagar</span>
             </div>
             <h3 className="text-3xl font-black text-slate-800 dark:text-white">
-              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPending)}
+              {formatCurrency(totalPending)}
             </h3>
             <p className="text-sm text-slate-400 mt-1">{pendingInvoices.length} notas aguardando pagamento</p>
           </div>
@@ -160,7 +161,7 @@ const Financial: React.FC<FinancialProps> = ({ state, setState }) => {
               <span className="font-bold text-slate-600 dark:text-slate-400 uppercase text-xs tracking-widest">Total Executado</span>
             </div>
             <h3 className="text-3xl font-black text-slate-800 dark:text-white">
-              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPaid)}
+              {formatCurrency(totalPaid)}
             </h3>
             <p className="text-sm text-slate-400 mt-1">{paidInvoices.length} pagamentos realizados</p>
           </div>
@@ -231,7 +232,7 @@ const Financial: React.FC<FinancialProps> = ({ state, setState }) => {
                       <div className="flex items-center gap-6">
                         <div className="text-right">
                           <p className="text-xl font-bold text-slate-800 dark:text-white">
-                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(total)}
+                             {formatCurrency(total)}
                           </p>
                           <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">Emitida em: {new Date(inv.issueDate).toLocaleDateString()}</p>
                         </div>
@@ -327,7 +328,7 @@ const Financial: React.FC<FinancialProps> = ({ state, setState }) => {
                           </td>
                           <td className="px-6 py-4 text-right">
                              <span className="font-bold text-slate-800 dark:text-white">
-                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(inv.payment?.amountPaid || 0)}
+                                {formatCurrency(inv.payment?.amountPaid || 0)}
                              </span>
                           </td>
                         </tr>

@@ -276,7 +276,7 @@ const Invoices: React.FC<InvoicesProps> = ({ state, setState }) => {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right font-bold text-slate-800 dark:text-white">
-                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(total)}
+                      {formatCurrency(total)}
                     </td>
                     <td className="px-6 py-4 text-center">
                       <div className="flex items-center justify-center gap-2">
@@ -432,7 +432,7 @@ const Invoices: React.FC<InvoicesProps> = ({ state, setState }) => {
                               </td>
                               <td className="p-4 text-center text-xs font-bold text-slate-500">{item.unit}</td>
                               <td className="p-4 text-right text-sm font-medium text-slate-600 dark:text-slate-400">
-                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.unitPrice)}
+                                {formatCurrency(item.unitPrice)}
                               </td>
                               
                               {/* Coluna Saldo */}
@@ -465,7 +465,7 @@ const Invoices: React.FC<InvoicesProps> = ({ state, setState }) => {
                               {/* Coluna Subtotal */}
                               <td className="p-4 text-right">
                                 <span className={`font-bold text-sm ${qty > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
-                                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(subtotal)}
+                                  {formatCurrency(subtotal)}
                                 </span>
                               </td>
                             </tr>
@@ -493,7 +493,7 @@ const Invoices: React.FC<InvoicesProps> = ({ state, setState }) => {
                 <div>
                   <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Total da Nota Fiscal</p>
                   <p className="text-2xl font-black text-slate-800 dark:text-white tracking-tighter">
-                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalInvoiceValue)}
+                    {formatCurrency(totalInvoiceValue)}
                   </p>
                 </div>
               </div>

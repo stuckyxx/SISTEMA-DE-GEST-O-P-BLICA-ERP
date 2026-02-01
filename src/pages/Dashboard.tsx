@@ -20,6 +20,7 @@ import {
   Clock
 } from 'lucide-react';
 import { AppState } from '../types';
+import { formatCompactCurrency, formatCurrency } from '../utils/format';
 
 interface DashboardProps {
   state: AppState;
@@ -81,7 +82,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state, isDarkMode = false }) => {
           <div>
             <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Valor Total Contratado</p>
             <h3 className="text-2xl font-bold text-slate-800 dark:text-white truncate">
-              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact' }).format(totalContracted)}
+              {formatCompactCurrency(totalContracted)}
             </h3>
           </div>
         </div>
@@ -110,7 +111,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state, isDarkMode = false }) => {
           <div>
             <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Notas Pendentes</p>
             <h3 className="text-2xl font-bold text-slate-800 dark:text-white truncate">
-               {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact' }).format(totalPending)}
+               {formatCompactCurrency(totalPending)}
             </h3>
             <p className="text-[10px] text-orange-500 font-bold mt-1">Aguardando Pagamento</p>
           </div>
@@ -141,7 +142,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state, isDarkMode = false }) => {
           <div>
             <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Saldo Global</p>
             <h3 className="text-2xl font-bold text-slate-800 dark:text-white truncate">
-              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact' }).format(balanceAvailable)}
+              {formatCompactCurrency(balanceAvailable)}
             </h3>
           </div>
         </div>
@@ -215,7 +216,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state, isDarkMode = false }) => {
                      <span className="text-slate-600 dark:text-slate-300 font-medium">{item.name}</span>
                    </div>
                    <span className="font-bold text-slate-800 dark:text-white">
-                     {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact' }).format(item.value)}
+                     {formatCompactCurrency(item.value)}
                    </span>
                  </div>
                ))}

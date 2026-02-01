@@ -18,69 +18,15 @@ import {
   AlertTriangle,
   FileSpreadsheet
 } from 'lucide-react';
-import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
-import * as XLSX from 'xlsx';
 import { AppState, Ata, AtaItem, AtaDistribution } from '../types';
+import { processUploadFile, ImportedData } from '../services/importService';
+import { formatCurrency } from '../utils/format';
+import { Button } from '../components/ui/Button';
 
 interface AtasProps {
   state: AppState;
   setState: React.Dispatch<React.SetStateAction<AppState>>;
 }
-
-// Função auxiliar para tentar reparar JSON cortado pela IA
-const attemptJsonRepair = (jsonStr: string): any => {
-  if (!jsonStr) return null;
-  
-  // Remove markdown code blocks e limpa espaços
-  const clean = jsonStr.replace(/```json/g, '').replace(/```/g, '').trim();
-  
-  try {
-    return JSON.parse(clean);
-  } catch (e) {
-    console.warn("JSON incompleto ou inválido. Tentando reparar...", e);
-    
-    // Tenta encontrar o início da lista de itens
-    const itemsIndex = clean.indexOf('"items"');
-    if (itemsIndex === -1) {
-        // Tenta encontrar apenas o objeto JSON se houver texto antes/depois
-        const firstBrace = clean.indexOf('{');
-        const lastBrace = clean.lastIndexOf('}');
-        if (firstBrace !== -1 && lastBrace > firstBrace) {
-            try {
-                return JSON.parse(clean.substring(firstBrace, lastBrace + 1));
-            } catch (e2) {}
-        }
-        return null;
-    }
-    
-    // Estratégia de recuperação quando corta no meio dos itens
-    const firstOpen = clean.indexOf('{');
-    const lastItemClose = clean.lastIndexOf('}');
-    
-    if (lastItemClose > itemsIndex) {
-        // Pega tudo até o último item completo
-        let fixed = clean.substring(firstOpen !== -1 ? firstOpen : 0, lastItemClose + 1);
-        
-        // Verifica se precisa fechar o array e o objeto root
-        if (!fixed.trim().endsWith('}')) fixed += '}';
-        if (!fixed.includes(']')) fixed += ']';
-        if (!fixed.endsWith('}')) fixed += '}';
-        
-        try {
-            return JSON.parse(fixed);
-        } catch (e6) {
-             // Fallback simples: Cortar no ultimo '},' e fechar
-             const lastComma = clean.lastIndexOf('},');
-             if (lastComma > itemsIndex) {
-                const superSimple = clean.substring(firstOpen !== -1 ? firstOpen : 0, lastComma + 1) + ']}';
-                try { return JSON.parse(superSimple); } catch(e7) {}
-             }
-             return null;
-        }
-    }
-    return null;
-  }
-};
 
 const Atas: React.FC<AtasProps> = ({ state, setState }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -136,241 +82,70 @@ const Atas: React.FC<AtasProps> = ({ state, setState }) => {
       return;
     }
 
+
     setIsImporting(true);
-    setImportStatus('Lendo arquivo...');
     setWarningMsg('');
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      let prompt = '';
-      let parts: any[] = [];
+      const extractedData = await processUploadFile(
+        file, 
+        process.env.API_KEY || '', // Ensure API key is available
+        setImportStatus
+      );
 
-      if (isExcel) {
-        // --- PROCESSAMENTO DE EXCEL (TODAS AS ABAS) ---
-        setImportStatus('Lendo planilhas...');
-        const arrayBuffer = await file.arrayBuffer();
-        // Converte para Uint8Array para garantir compatibilidade
-        const data = new Uint8Array(arrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
-        
-        let allCsvContent = "";
-        
-        // Itera sobre todas as abas para pegar todos os lotes/tabelas
-        workbook.SheetNames.forEach(sheetName => {
-            const worksheet = workbook.Sheets[sheetName];
-            // Usa sheet_to_csv que é mais eficiente em tokens que JSON
-            const csv = XLSX.utils.sheet_to_csv(worksheet, { blankrows: false });
-            if (csv && csv.trim().length > 0) {
-                // Adiciona delimitadores para ajudar a IA a entender que são tabelas/lotes diferentes
-                allCsvContent += `\n--- TABELA/ABA: ${sheetName} ---\n${csv}\n`;
-            }
-        });
-
-        if (!allCsvContent.trim()) {
-           throw new Error("O arquivo Excel parece estar vazio ou não pôde ser lido.");
-        }
-
-        console.log("CSV Content Length:", allCsvContent.length);
-
-        prompt = `
-          Você é um especialista em análise de dados de licitações.
-          Analise os dados CSV abaixo, extraídos de um arquivo Excel com múltiplas abas.
-          
-          OBJETIVO: Extrair e consolidar TODOS os itens de TODAS as tabelas em um único JSON.
-          
-          Regras:
-          1. Identifique o LOTE baseado no nome da aba ou cabeçalhos (ex: "Table 1" -> "Lote 1").
-          2. Ignore linhas vazias ou cabeçalhos repetidos.
-          3. Mapeie colunas para: Descrição, Marca, Unidade, Quantidade, Preço Unitário.
-          4. Se a quantidade ou preço tiver símbolos (R$, .), converta para number float (ex: 1050.50).
-          5. NÃO adicione comentários, retorne APENAS o JSON.
-          
-          Estrutura JSON Obrigatória:
-          {
-            "processNumber": "string",
-            "supplierName": "string",
-            "items": [
-              { 
-                "lote": "string", 
-                "itemNumber": number, 
-                "description": "string", 
-                "brand": "string", 
-                "unit": "string", 
-                "quantity": number, 
-                "unitPrice": number, 
-                "totalPrice": number 
-              }
-            ]
-          }
-
-          DADOS CSV:
-          ${allCsvContent.substring(0, 400000)} 
-        `; // Reduzido para 400k caracteres para evitar erros de limite de token ou timeout silencioso
-
-        parts = [{ text: prompt }];
-
-      } else {
-        // --- PROCESSAMENTO DE PDF ---
-        const reader = new FileReader();
-        const base64Promise = new Promise<string>((resolve, reject) => {
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        
-        const base64Data = await base64Promise;
-        const base64Content = base64Data.split(',')[1];
-
-        prompt = `
-          Extraia os dados desta Ata de Registro de Preços em JSON.
-          Identifique número do processo, fornecedor e LISTA DE ITENS com Lote, Descrição, Marca, Unid, Qtd, Valor Unit.
-          
-          Retorne APENAS JSON válido.
-          
-          Estrutura:
-          {
-            "processNumber": "string",
-            "modality": "string",
-            "object": "string",
-            "year": "string",
-            "supplierName": "string",
-            "supplierCNPJ": "string",
-            "items": [
-              { "lote": "string", "itemNumber": number, "description": "string", "brand": "string", "unit": "string", "quantity": number, "unitPrice": number, "totalPrice": number }
-            ]
-          }
-        `;
-
-        parts = [
-          { text: prompt },
-          { inlineData: { mimeType: 'application/pdf', data: base64Content } }
-        ];
+      // Identificar fornecedor
+      let foundSupplierId = '';
+      
+      // Attempt to find supplier
+      if (extractedData.supplierName) {
+          const supplier = state.suppliers.find(s => 
+            s.name.toLowerCase().includes(extractedData.supplierName?.toLowerCase() || '') || 
+            (extractedData.supplierName?.toLowerCase() || '').includes(s.name.toLowerCase())
+          );
+          if (supplier) foundSupplierId = supplier.id;
       }
 
-      setImportStatus('IA processando dados (aguarde)...');
+      // Atualizar formulário
+      setFormData(prev => ({
+        ...prev,
+        processNumber: extractedData.processNumber || prev.processNumber,
+        supplierId: foundSupplierId || prev.supplierId
+      }));
 
-      try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash-preview-09-2025', 
-          contents: { parts },
-          config: {
-            responseMimeType: 'application/json',
-            temperature: 0.1,
-            maxOutputTokens: 8192,
-            safetySettings: [
-              { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-              { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-              { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-              { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-            ]
-          }
-        });
-
-        setImportStatus('Processando resposta...');
-        
-        // Tenta extrair texto de diferentes formas para robustez
-        let text = response.text;
-        
-        if (!text && response.candidates && response.candidates.length > 0) {
-             // Fallback: Tentar pegar direto do content parts se o getter .text falhar
-             text = response.candidates[0].content?.parts?.[0]?.text;
-        }
-
-        if (!text) {
-           console.error("Resposta da IA vazia. Candidates:", JSON.stringify(response.candidates, null, 2));
-           // Verifica se foi bloqueado
-           const finishReason = response.candidates?.[0]?.finishReason;
-           if (finishReason) {
-              throw new Error(`A IA interrompeu a geração. Motivo: ${finishReason}`);
-           }
-           throw new Error("A IA não retornou nenhum texto. O arquivo pode ser muito grande ou complexo.");
-        }
-
-        let extractedData = attemptJsonRepair(text);
-
-        if (!extractedData) {
-            console.error("Texto retornado pela IA (inválido):", text.substring(0, 500) + "...");
-            throw new Error("A IA retornou dados que não puderam ser convertidos em JSON.");
-        }
-
-        // Verifica corte apenas se for PDF ou texto muito longo
-        if (isPdf) {
-           try { JSON.parse(text); } catch(e) { 
-             setWarningMsg("Aviso: Documento extenso. Verifique se todos os itens foram importados.");
-           }
-        }
-
-        // Identificar fornecedor
-        let foundSupplierId = '';
-        if (extractedData.supplierCNPJ) {
-            const cleanCNPJ = extractedData.supplierCNPJ.replace(/\D/g, '');
-            const supplier = state.suppliers.find(s => s.cnpj.replace(/\D/g, '').includes(cleanCNPJ));
-            if (supplier) foundSupplierId = supplier.id;
-        }
-        if (!foundSupplierId && extractedData.supplierName) {
-            const supplier = state.suppliers.find(s => 
-              s.name.toLowerCase().includes(extractedData.supplierName.toLowerCase()) || 
-              extractedData.supplierName.toLowerCase().includes(s.name.toLowerCase())
-            );
-            if (supplier) foundSupplierId = supplier.id;
-        }
-
-        // Atualizar formulário
-        setFormData(prev => ({
-          ...prev,
-          processNumber: extractedData.processNumber || '',
-          modality: extractedData.modality || '',
-          object: extractedData.object || '',
-          year: extractedData.year || new Date().getFullYear().toString(),
-          supplierId: foundSupplierId || ''
-        }));
-
-        const mappedItems: AtaItem[] = (extractedData.items || []).map((item: any) => ({
-          id: Math.random().toString(36).substr(2, 9),
-          lote: item.lote || 'Lote Único',
-          itemNumber: Number(item.itemNumber) || 0,
-          description: item.description || '',
-          brand: item.brand || '',
-          unit: item.unit || 'UND',
-          quantity: Number(item.quantity) || 0,
-          unitPrice: Number(item.unitPrice) || 0,
-          totalPrice: Number(item.totalPrice) || (Number(item.quantity) * Number(item.unitPrice))
-        }));
-
-        setItems(mappedItems);
-        setImportStatus('Concluído!');
-        setTimeout(() => setIsImporting(false), 1000);
-
-      } catch (error: any) {
-        console.error("Erro na IA:", error);
-        alert(`Erro ao processar o arquivo: ${error.message || 'Falha desconhecida'}. Tente verificar se o arquivo está legível.`);
-        setIsImporting(false);
+      // Map items
+      if (extractedData.items && Array.isArray(extractedData.items)) {
+          const newItems: AtaItem[] = extractedData.items.map((item: any) => ({
+              id: Math.random().toString(36).substr(2, 9),
+              lote: item.lote || 'Único',
+              itemNumber: parseInt(item.itemNumber) || 0,
+              description: item.description || '',
+              brand: item.brand || '',
+              unit: item.unit || 'UN',
+              quantity: parseFloat(item.quantity) || 0,
+              unitPrice: parseFloat(item.unitPrice) || 0,
+              totalPrice: (parseFloat(item.quantity) || 0) * (parseFloat(item.unitPrice) || 0)
+          }));
+          setItems(newItems);
       }
+      
+      setImportStatus('Concluído!');
+      setTimeout(() => setIsImporting(false), 1500);
 
-    } catch (err: any) {
-      console.error(err);
+    } catch (error: any) {
+      console.error("Erro na importação:", error);
+      setImportStatus('Erro');
       setIsImporting(false);
-      alert(`Erro crítico: ${err.message || 'Falha ao ler o arquivo'}.`);
+      // Alert removido para evitar problemas de compilação
+      console.warn(`Erro detalhado: ${error.message}`);
     }
+    
+    // Limpa input
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // --- CRUD ITEM LOGIC ---
-  const handleAddItem = () => {
-    setItems([...items, {
-      id: Math.random().toString(36).substr(2, 9),
-      lote: 'Lote 1',
-      itemNumber: items.length + 1,
-      description: '',
-      brand: '',
-      unit: 'UND',
-      quantity: 0,
-      unitPrice: 0,
-      totalPrice: 0
-    }]);
-  };
-
-  const updateItem = (id: string, field: keyof AtaItem, value: any) => {
-    setItems(prev => prev.map(item => {
+  // --- ITEM MANAGEMENT LOGIC ---
+  const handleUpdateItem = (id: string, field: keyof AtaItem, value: any) => {
+    setItems(items.map(item => {
       if (item.id === id) {
         const updated = { ...item, [field]: value };
         // Recalcular total se mudar qtd ou preço

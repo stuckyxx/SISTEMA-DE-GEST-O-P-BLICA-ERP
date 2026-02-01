@@ -164,7 +164,7 @@ const ServiceOrders: React.FC<ServiceOrdersProps> = ({ state, setState }) => {
                     <div className="text-right">
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Valor Autorizado</p>
                       <p className="text-xl font-bold text-slate-800 dark:text-white">
-                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(getTotalValue(os))}
+                        {formatCurrency(getTotalValue(os))}
                       </p>
                     </div>
                     <button 
@@ -282,7 +282,7 @@ const ServiceOrders: React.FC<ServiceOrdersProps> = ({ state, setState }) => {
                                   />
                                 </td>
                                 <td className="py-3 text-right pr-2 font-bold text-slate-700 dark:text-slate-300">
-                                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(osItem.total)}
+                                  {formatCurrency(osItem.total)}
                                 </td>
                                 <td className="py-3 text-center">
                                   <button 

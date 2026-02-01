@@ -23,6 +23,7 @@ import {
   Activity,
   Key
 } from 'lucide-react';
+import { Button } from '../components/ui/Button';
 import { Tenant, AppState, SystemUser, SystemLog } from '../types';
 
 const AdminHome: React.FC = () => {
@@ -260,9 +261,9 @@ const AdminHome: React.FC = () => {
               </div>
             )}
 
-            <button type="submit" className="w-full bg-slate-100 hover:bg-white text-slate-900 font-bold py-4 rounded-xl transition-all shadow-lg active:scale-95">
+            <Button type="submit" variant="secondary" className="w-full font-bold py-4 shadow-lg active:scale-95">
               Acessar Gerenciador
-            </button>
+            </Button>
           </form>
         </div>
       </div>
@@ -305,13 +306,13 @@ const AdminHome: React.FC = () => {
               Gerencie as instâncias do sistema. Cada cliente possui um banco de dados isolado e configurações próprias.
             </p>
           </div>
-          <button 
+          <Button 
             onClick={() => setIsCreating(true)}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg shadow-indigo-900/40 hover:scale-105 active:scale-95"
+            icon={Plus}
+            className="px-6 py-3 font-bold shadow-lg shadow-indigo-900/40 hover:scale-105 active:scale-95 bg-indigo-600 hover:bg-indigo-500 border-none"
           >
-            <Plus size={20} />
             Nova Instância
-          </button>
+          </Button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
