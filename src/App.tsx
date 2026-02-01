@@ -18,12 +18,12 @@ import {
 } from 'lucide-react';
 
 import Dashboard from './pages/Dashboard';
-import Atas from './pages/Atas'; // Nova página
-import Contracts from './pages/Contracts';
-import Invoices from './pages/Invoices';
-import Financial from './pages/Financial';
-import Suppliers from './pages/Suppliers';
-import ServiceOrders from './pages/ServiceOrders';
+import Atas from './pages/atas'; // Nova página refatorada
+import Contracts from './pages/contracts';
+import Invoices from './pages/invoices';
+import Financial from './pages/financial';
+import Suppliers from './pages/suppliers';
+import ServiceOrders from './pages/service-orders';
 import SettingsPage from './pages/Settings';
 import Login from './pages/Login';
 import AdminHome from './pages/AdminHome';
