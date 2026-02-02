@@ -141,7 +141,7 @@ const AtaForm: React.FC<AtaFormProps> = ({
               {isEditing ? 'Editar Ata de Registro' : 'Cadastro de Ata de Registro de Preços'}
             </h3>
             <p className="text-xs text-slate-500">
-              {isEditing ? 'Altere itens e distribuição conforme necessário.' : 'Preencha manualmente ou utilize a IA para importar PDF ou Excel.'}
+              {isEditing ? 'Altere itens e distribuição conforme necessário.' : 'Preencha manualmente ou importar o PDF.'}
             </p>
           </div>
           <div className="flex gap-2">
@@ -160,7 +160,7 @@ const AtaForm: React.FC<AtaFormProps> = ({
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-80 ${isImporting ? 'bg-emerald-600 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
                 >
                   {isImporting ? <Loader2 className="animate-spin" size={16} /> : <FileSpreadsheet size={16} />}
-                  {isImporting ? importStatus : 'Importar PDF ou Excel (IA)'}
+                  {isImporting ? importStatus : 'Importar PDF'}
                 </button>
               </>
             )}
