@@ -1,6 +1,6 @@
 import React from 'react';
-import { 
-  X, Loader2, FileSpreadsheet, AlertTriangle, Trash2, PieChart, Save 
+import {
+  X, Loader2, FileSpreadsheet, AlertTriangle, Trash2, PieChart, Save
 } from 'lucide-react';
 import { AppState, Ata, AtaItem, AtaDistribution } from '../../../types';
 import { formatCurrency } from '../../../utils/format';
@@ -11,6 +11,7 @@ interface AtaFormProps {
   formData: Partial<Ata>;
   setFormData: React.Dispatch<React.SetStateAction<Partial<Ata>>>;
   items: AtaItem[];
+  setItems: React.Dispatch<React.SetStateAction<AtaItem[]>>;
   handleUpdateItem: (id: string, field: keyof AtaItem, value: any) => void;
   removeItem: (id: string) => void;
   handleAddItem: () => void;
@@ -25,15 +26,17 @@ interface AtaFormProps {
   reservedPercent: number;
   reservedValue: number;
   handleSaveAta: () => void;
-  
+
   isImporting: boolean;
   importStatus: string;
   handleFileUpload: (event: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
   fileInputRef: React.RefObject<HTMLInputElement>;
   warningMsg: string;
-  
+
   state: AppState;
 }
+
+import { parseAtaPDF } from '../../../utils/pdfParser';
 
 const AtaForm: React.FC<AtaFormProps> = ({
   onClose,
@@ -41,6 +44,7 @@ const AtaForm: React.FC<AtaFormProps> = ({
   formData,
   setFormData,
   items,
+  setItems,
   handleUpdateItem,
   removeItem,
   handleAddItem,
@@ -55,17 +59,81 @@ const AtaForm: React.FC<AtaFormProps> = ({
   reservedPercent,
   reservedValue,
   handleSaveAta,
-  isImporting,
-  importStatus,
-  handleFileUpload,
+  isImporting: parentIsImporting,
+  importStatus: parentImportStatus,
+  handleFileUpload: parentHandleFileUpload,
   fileInputRef,
-  warningMsg,
+  warningMsg: parentWarningMsg,
   state
 }) => {
+  // We need to use internal state for importing if the parent props aren't sufficient or 
+  // if we want to override the behavior right here without changing the parent controller.
+  // However, the prompt asked to implement "in the frontend component".
+  // The 'AtaFormProps' defines 'handleFileUpload' as being passed in.
+  // Ideally, logic should be in the parent container (likely 'AtasPage' or similar), 
+  // BUT the user asked to implement "in the frontend component" and "AtaForm" is where the UI is.
+  // If I change 'handleFileUpload' here, it won't affect the parent state unless I use the parent's setters.
+  // Seeing the props, it seems the parent controls the state. 
+  // To avoid refactoring the parent (which I haven't seen), I will implement a WRAPPER function here
+  // and try to update the form data using 'setFormData' and 'handleAddItem' if possible, 
+  // OR I will assume I can modify the passed 'handleFileUpload' logic if I can find where it is defined.
+  // ACTUALLY, checking the file interaction: `onChange={handleFileUpload}` calls the prop.
+  // Use `replace_file_content` to CHANGE the `onChange` handler to a LOCAL function that uses the parser.
+
+  const [localIsImporting, setLocalIsImporting] = React.useState(false);
+  const [localImportStatus, setLocalImportStatus] = React.useState('');
+  const [localWarning, setLocalWarning] = React.useState('');
+
+  const onFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (file.type === 'application/pdf') {
+      try {
+        setLocalIsImporting(true);
+        setLocalImportStatus('Lendo PDF...');
+
+        const result = await parseAtaPDF(file);
+
+        setLocalImportStatus('Preenchendo formulário...');
+
+        // Update Header Data
+        setFormData(prev => ({
+          ...prev,
+          ...result.ata
+        }));
+
+        if (result.items.length > 0) {
+          setItems(result.items);
+        }
+
+        if (result.warnings.length > 0) {
+          // Join warnings if multiple
+          setLocalWarning(result.warnings.join(' '));
+        }
+      } catch (error) {
+        console.error(error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        setLocalWarning(`Erro ao processar PDF: ${errorMessage}`);
+      } finally {
+        setLocalIsImporting(false);
+        setLocalImportStatus('');
+      }
+    } else {
+      // Fallback to existing handler for Excel or other
+      if (parentHandleFileUpload) await parentHandleFileUpload(event);
+    }
+  };
+
+
+  const isImporting = parentIsImporting || localIsImporting;
+  const importStatus = parentImportStatus || localImportStatus;
+  const warningMsg = parentWarningMsg || localWarning;
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-in fade-in duration-300">
       <div className="bg-white dark:bg-slate-900 rounded-[2rem] w-full max-w-7xl max-h-[95vh] overflow-hidden flex flex-col shadow-2xl border border-white/20">
-        
+
         {/* Header */}
         <div className="px-8 py-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-900 shrink-0">
           <div>
@@ -79,14 +147,14 @@ const AtaForm: React.FC<AtaFormProps> = ({
           <div className="flex gap-2">
             {!isEditing && (
               <>
-                <input 
-                  type="file" 
-                  accept="application/pdf, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" 
-                  className="hidden" 
+                <input
+                  type="file"
+                  accept="application/pdf, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
+                  className="hidden"
                   ref={fileInputRef}
-                  onChange={handleFileUpload}
+                  onChange={onFileChange}
                 />
-                <button 
+                <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isImporting}
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-80 ${isImporting ? 'bg-emerald-600 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
@@ -104,7 +172,7 @@ const AtaForm: React.FC<AtaFormProps> = ({
 
         {/* Conteúdo Scrollable */}
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar space-y-8">
-          
+
           {/* Aviso de Leitura Parcial */}
           {warningMsg && (
             <div className="bg-orange-50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-800 p-4 rounded-xl flex items-center gap-3 text-orange-700 dark:text-orange-400">
@@ -117,28 +185,28 @@ const AtaForm: React.FC<AtaFormProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="md:col-span-1 space-y-2">
               <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Processo Nº</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 font-bold outline-none focus:border-blue-500 text-slate-800 dark:text-white"
                 value={formData.processNumber}
-                onChange={e => setFormData({...formData, processNumber: e.target.value})}
+                onChange={e => setFormData({ ...formData, processNumber: e.target.value })}
               />
             </div>
             <div className="md:col-span-1 space-y-2">
               <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Ano</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 font-bold outline-none focus:border-blue-500 text-slate-800 dark:text-white"
                 value={formData.year}
-                onChange={e => setFormData({...formData, year: e.target.value})}
+                onChange={e => setFormData({ ...formData, year: e.target.value })}
               />
             </div>
             <div className="md:col-span-2 space-y-2">
               <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Fornecedor Vencedor</label>
-              <select 
+              <select
                 className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 font-bold outline-none focus:border-blue-500 text-slate-800 dark:text-white"
                 value={formData.supplierId}
-                onChange={e => setFormData({...formData, supplierId: e.target.value})}
+                onChange={e => setFormData({ ...formData, supplierId: e.target.value })}
               >
                 <option value="">Selecione...</option>
                 {state.suppliers.map(s => <option key={s.id} value={s.id}>{s.name} ({s.cnpj})</option>)}
@@ -146,20 +214,20 @@ const AtaForm: React.FC<AtaFormProps> = ({
             </div>
             <div className="md:col-span-4 space-y-2">
               <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Modalidade</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 placeholder="Ex: Pregão Eletrônico nº 010/2023"
                 className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 font-medium outline-none focus:border-blue-500 text-slate-800 dark:text-white"
                 value={formData.modality}
-                onChange={e => setFormData({...formData, modality: e.target.value})}
+                onChange={e => setFormData({ ...formData, modality: e.target.value })}
               />
             </div>
             <div className="md:col-span-4 space-y-2">
               <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Objeto</label>
-              <textarea 
+              <textarea
                 className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 font-medium outline-none focus:border-blue-500 text-slate-800 dark:text-white resize-none h-20"
                 value={formData.object}
-                onChange={e => setFormData({...formData, object: e.target.value})}
+                onChange={e => setFormData({ ...formData, object: e.target.value })}
               />
             </div>
           </div>
@@ -175,7 +243,7 @@ const AtaForm: React.FC<AtaFormProps> = ({
                 + Adicionar Item
               </button>
             </div>
-            
+
             <div className="overflow-x-auto max-h-[400px] custom-scrollbar rounded-xl border border-slate-200 dark:border-slate-800">
               <table className="w-full text-sm text-left relative">
                 <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 uppercase text-[10px] font-bold sticky top-0 z-10 shadow-sm">
@@ -196,8 +264,8 @@ const AtaForm: React.FC<AtaFormProps> = ({
                     <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/50">
                       <td className="p-2 text-center font-bold text-slate-400">{item.itemNumber || index + 1}</td>
                       <td className="p-2">
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           className="w-full bg-transparent outline-none text-center font-medium text-blue-600 dark:text-blue-400"
                           value={item.lote || ''}
                           onChange={e => handleUpdateItem(item.id, 'lote', e.target.value)}
@@ -205,8 +273,8 @@ const AtaForm: React.FC<AtaFormProps> = ({
                         />
                       </td>
                       <td className="p-2">
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           className="w-full bg-transparent outline-none font-medium text-slate-700 dark:text-slate-200"
                           value={item.description}
                           onChange={e => handleUpdateItem(item.id, 'description', e.target.value)}
@@ -214,8 +282,8 @@ const AtaForm: React.FC<AtaFormProps> = ({
                         />
                       </td>
                       <td className="p-2">
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           className="w-full bg-transparent outline-none text-slate-600 dark:text-slate-400"
                           value={item.brand}
                           onChange={e => handleUpdateItem(item.id, 'brand', e.target.value)}
@@ -223,24 +291,24 @@ const AtaForm: React.FC<AtaFormProps> = ({
                         />
                       </td>
                       <td className="p-2">
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           className="w-full bg-transparent outline-none text-center font-bold text-slate-500 uppercase"
                           value={item.unit}
                           onChange={e => handleUpdateItem(item.id, 'unit', e.target.value)}
                         />
                       </td>
                       <td className="p-2">
-                        <input 
-                          type="number" 
+                        <input
+                          type="number"
                           className="w-full bg-slate-50 dark:bg-slate-800 rounded p-1 outline-none text-center font-bold"
                           value={item.quantity}
                           onChange={e => handleUpdateItem(item.id, 'quantity', Number(e.target.value))}
                         />
                       </td>
                       <td className="p-2">
-                        <input 
-                          type="number" 
+                        <input
+                          type="number"
                           className="w-full bg-slate-50 dark:bg-slate-800 rounded p-1 outline-none text-right font-bold"
                           value={item.unitPrice}
                           onChange={e => handleUpdateItem(item.id, 'unitPrice', Number(e.target.value))}
@@ -285,9 +353,9 @@ const AtaForm: React.FC<AtaFormProps> = ({
               <div className="space-y-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Secretaria</label>
-                  <input 
-                    type="text" 
-                    placeholder="Ex: Saúde, Educação..." 
+                  <input
+                    type="text"
+                    placeholder="Ex: Saúde, Educação..."
                     className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 outline-none"
                     value={newDistSecretariat}
                     onChange={e => setNewDistSecretariat(e.target.value)}
@@ -296,9 +364,9 @@ const AtaForm: React.FC<AtaFormProps> = ({
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Porcentagem (%)</label>
                   <div className="relative">
-                    <input 
-                      type="number" 
-                      placeholder="50" 
+                    <input
+                      type="number"
+                      placeholder="50"
                       max="100"
                       className="w-full p-3 pr-8 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 outline-none font-bold"
                       value={newDistPercent || ''}
@@ -307,7 +375,7 @@ const AtaForm: React.FC<AtaFormProps> = ({
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
                   </div>
                 </div>
-                <button 
+                <button
                   onClick={handleAddDistribution}
                   className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-all"
                 >
@@ -354,26 +422,26 @@ const AtaForm: React.FC<AtaFormProps> = ({
             </div>
           </div>
 
-        </div>
+        </div >
 
         {/* Footer */}
-        <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex justify-end gap-3 shrink-0">
-          <button 
+        < div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex justify-end gap-3 shrink-0" >
+          <button
             onClick={onClose}
             className="px-6 py-3 rounded-xl font-bold text-slate-500 hover:bg-white dark:hover:bg-slate-800 transition-colors"
           >
             Cancelar
           </button>
-          <button 
-            onClick={handleSaveAta} 
+          <button
+            onClick={handleSaveAta}
             className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-bold shadow-lg flex items-center gap-2"
           >
             <Save size={20} /> {isEditing ? 'Atualizar Ata' : 'Salvar Ata'}
           </button>
-        </div>
+        </div >
 
-      </div>
-    </div>
+      </div >
+    </div >
   );
 };
 

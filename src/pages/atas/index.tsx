@@ -21,7 +21,7 @@ const AtasPage: React.FC<AtasPageProps> = ({ state, setState }) => {
     warningMsg,
     fileInputRef,
     formData, setFormData,
-    items, 
+    items, setItems,
     distributions,
     newDistSecretariat, setNewDistSecretariat,
     newDistPercent, setNewDistPercent,
@@ -43,7 +43,7 @@ const AtasPage: React.FC<AtasPageProps> = ({ state, setState }) => {
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto space-y-8 animate-in fade-in duration-500">
-      
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
@@ -66,7 +66,7 @@ const AtasPage: React.FC<AtasPageProps> = ({ state, setState }) => {
             />
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
           </div>
-          
+
           <button
             onClick={() => {
               resetForm();
@@ -83,25 +83,25 @@ const AtasPage: React.FC<AtasPageProps> = ({ state, setState }) => {
       {/* Stats Cards - Optional layout enhancement */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <div className="flex items-center gap-4">
-                <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 rounded-xl">
-                    <FileText size={24} />
-                </div>
-                <div>
-                    <p className="text-sm font-bold text-slate-500 uppercase tracking-wider">Total em Atas</p>
-                    <p className="text-2xl font-black text-slate-800 dark:text-white">
-                        {formatCurrency(state.atas.reduce((acc, a) => acc + a.totalValue, 0))}
-                    </p>
-                </div>
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 rounded-xl">
+              <FileText size={24} />
             </div>
+            <div>
+              <p className="text-sm font-bold text-slate-500 uppercase tracking-wider">Total em Atas</p>
+              <p className="text-2xl font-black text-slate-800 dark:text-white">
+                {formatCurrency(state.atas.reduce((acc, a) => acc + a.totalValue, 0))}
+              </p>
+            </div>
+          </div>
         </div>
         {/* Adicionar mais cards se necessário */}
       </div>
 
       {/* List */}
-      <AtaList 
-        atas={filteredAtas} 
-        handleEditAta={handleEditAta} 
+      <AtaList
+        atas={filteredAtas}
+        handleEditAta={handleEditAta}
         handleDeleteAta={handleDeleteAta}
         suppliers={state.suppliers}
       />
@@ -114,6 +114,7 @@ const AtasPage: React.FC<AtasPageProps> = ({ state, setState }) => {
           formData={formData}
           setFormData={setFormData}
           items={items}
+          setItems={setItems}
           handleUpdateItem={handleUpdateItem}
           removeItem={removeItem}
           handleAddItem={handleAddItem}
