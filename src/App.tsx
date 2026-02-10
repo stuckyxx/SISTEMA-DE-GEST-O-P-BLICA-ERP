@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Link, useLocation, Navigate, useParams, useNavigate } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  FileText, 
-  Receipt, 
-  Wallet, 
-  Settings, 
-  Menu, 
+import {
+  LayoutDashboard,
+  FileText,
+  Receipt,
+  Wallet,
+  Settings,
+  Menu,
   Users,
   Moon,
   Sun,
@@ -27,8 +27,9 @@ import ServiceOrders from './pages/service-orders';
 import SettingsPage from './pages/Settings';
 import Login from './pages/Login';
 import AdminHome from './pages/AdminHome';
-import Landing from './pages/Landing'; 
+import Landing from './pages/Landing';
 import { AppState, SystemUser } from './types';
+import { supabaseService } from './services/supabaseService';
 
 // Layout do Cliente (Tenant)
 const TenantLayout: React.FC = () => {
@@ -41,7 +42,7 @@ const TenantLayout: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return sessionStorage.getItem(`auth_${tenantId}`) === 'true';
   });
-  
+
   // Usuário logado
   const [currentUser, setCurrentUser] = useState<SystemUser | null>(null);
 
@@ -56,38 +57,59 @@ const TenantLayout: React.FC = () => {
 
   // 1. Carregar Banco de Dados do Cliente
   useEffect(() => {
-    const dbKey = `erp_db_${tenantId}`;
-    const savedData = localStorage.getItem(dbKey);
+    const loadState = async () => {
+      setLoading(true);
 
-    if (savedData) {
-      const parsedData = JSON.parse(savedData);
-      
-      // Fallback para bancos antigos
-      if (!parsedData.users) {
-         parsedData.users = [{
+      // Tentar carregar do Supabase primeiro
+      const remoteState = await supabaseService.fetchAppState(tenantId!);
+
+      if (remoteState) {
+        setState(remoteState);
+        setLoading(false);
+        return;
+      }
+
+      // Se não houver no Supabase, tentar localStorage (migração)
+      const dbKey = `erp_db_${tenantId}`;
+      const savedData = localStorage.getItem(dbKey);
+
+      if (savedData) {
+        const parsedData = JSON.parse(savedData);
+
+        // Fallback para bancos antigos
+        if (!parsedData.users) {
+          parsedData.users = [{
             id: 'admin-legacy',
             name: 'Admin Legado',
             username: 'admin',
             password: 'admin',
             role: 'admin',
             createdAt: new Date().toISOString()
-         }];
-      }
-      if (!parsedData.logs) parsedData.logs = [];
-      if (!parsedData.atas) parsedData.atas = []; // Inicializa atas se não existir
+          }];
+        }
+        if (!parsedData.logs) parsedData.logs = [];
+        if (!parsedData.atas) parsedData.atas = [];
 
-      setState(parsedData);
+        setState(parsedData);
+
+        // Migrar para o Supabase
+        await supabaseService.saveAppState(tenantId!, parsedData);
+        console.log('Dados migrados do localStorage para o Supabase');
+      } else {
+        alert("Entidade não encontrada. Verifique o endereço digitado.");
+        navigate('/');
+      }
       setLoading(false);
-    } else {
-      alert("Entidade não encontrada. Verifique o endereço digitado.");
-      navigate('/');
-    }
+    };
+
+    loadState();
   }, [tenantId, navigate]);
 
   // 2. Salvar Automaticamente quando o state muda
   useEffect(() => {
     if (state && tenantId) {
       localStorage.setItem(`erp_db_${tenantId}`, JSON.stringify(state));
+      supabaseService.saveAppState(tenantId, state);
     }
   }, [state, tenantId]);
 
@@ -137,38 +159,38 @@ const TenantLayout: React.FC = () => {
   if (!isAuthenticated) {
     return (
       <div className="relative">
-         <button 
-            onClick={() => navigate('/')} 
-            className="absolute top-4 left-4 z-50 flex items-center gap-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white transition-colors bg-white/50 dark:bg-black/50 p-2 rounded-lg"
-         >
-           <ArrowLeft size={20} /> Ir para Início
-         </button>
-         <Login 
-            onLogin={handleLogin} 
-            users={state.users} 
-            entityName={state.entity.name} 
-            isDarkMode={isDarkMode} 
-            toggleTheme={toggleTheme} 
-         />
+        <button
+          onClick={() => navigate('/')}
+          className="absolute top-4 left-4 z-50 flex items-center gap-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white transition-colors bg-white/50 dark:bg-black/50 p-2 rounded-lg"
+        >
+          <ArrowLeft size={20} /> Ir para Início
+        </button>
+        <Login
+          onLogin={handleLogin}
+          users={state.users}
+          entityName={state.entity.name}
+          isDarkMode={isDarkMode}
+          toggleTheme={toggleTheme}
+        />
       </div>
     );
   }
 
-  const activeLink = (path: string) => 
-    location.pathname.endsWith(path) 
-      ? "bg-blue-600 text-white shadow-md shadow-blue-500/30 dark:shadow-blue-900/20" 
+  const activeLink = (path: string) =>
+    location.pathname.endsWith(path)
+      ? "bg-blue-600 text-white shadow-md shadow-blue-500/30 dark:shadow-blue-900/20"
       : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-blue-600 dark:hover:text-blue-400";
 
   const p = `/${tenantId}`;
 
   return (
     <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-300">
-      
+
       {/* Sidebar Mobile Overlay */}
       {sidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden" 
-          onClick={() => setSidebarOpen(false)} 
+        <div
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
         />
       )}
 
@@ -218,14 +240,14 @@ const TenantLayout: React.FC = () => {
           </nav>
 
           <div className="mt-auto pt-6 border-t border-slate-100 dark:border-slate-800 space-y-3">
-            <button 
+            <button
               onClick={toggleTheme}
               className="flex items-center gap-3 w-full p-3 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all font-medium"
             >
               {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
               {isDarkMode ? 'Modo Claro' : 'Modo Escuro'}
             </button>
-            <Link 
+            <Link
               to={`${p}/settings`}
               onClick={() => setSidebarOpen(false)}
               className={`flex items-center gap-3 w-full p-3 rounded-xl transition-all font-medium ${activeLink('settings')}`}
@@ -233,7 +255,7 @@ const TenantLayout: React.FC = () => {
               <Settings size={20} />
               Configurações
             </Link>
-            <button 
+            <button
               onClick={handleLogout}
               className="flex items-center gap-3 w-full p-3 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all font-medium mt-2"
             >
