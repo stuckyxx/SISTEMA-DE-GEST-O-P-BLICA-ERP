@@ -1,17 +1,26 @@
 import { useState, useRef, useMemo } from 'react';
 import { AppState, Ata, AtaItem, AtaDistribution } from '../../../types';
 import { processUploadFile } from '../../../services/importService';
+import { useTenantOptional } from '../../../contexts/TenantContext';
+import { useAlert } from '../../../contexts/AlertContext';
+import { createAta, updateAta, deleteAta } from '../../../services/api';
+import { ataToAtaCreate } from '../../../services/mappers';
 
 export const useAtas = (state: AppState, setState: React.Dispatch<React.SetStateAction<AppState>>) => {
+  const { alert, confirm } = useAlert();
+  const tenant = useTenantOptional();
+  const useApi = tenant?.entidadeId != null;
+  const [apiLoading, setApiLoading] = useState(false);
+  const [apiError, setApiError] = useState('');
+
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAtaId, setEditingAtaId] = useState<string | null>(null);
-  
-  // Status de Importação
+
   const [isImporting, setIsImporting] = useState(false);
-  const [importStatus, setImportStatus] = useState(''); 
+  const [importStatus, setImportStatus] = useState('');
   const [warningMsg, setWarningMsg] = useState('');
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Form State
@@ -51,7 +60,10 @@ export const useAtas = (state: AppState, setState: React.Dispatch<React.SetState
     const isExcel = file.type.includes('sheet') || file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
 
     if (!isPdf && !isExcel) {
-      alert('Por favor, envie apenas arquivos PDF ou Excel (.xlsx, .xls).');
+      await alert({
+        title: 'Formato Inválido',
+        message: 'Por favor, envie apenas arquivos PDF ou Excel (.xlsx, .xls).',
+      });
       return;
     }
 
@@ -145,14 +157,17 @@ export const useAtas = (state: AppState, setState: React.Dispatch<React.SetState
     }]);
   };
 
-  const handleAddDistribution = () => {
+  const handleAddDistribution = async () => {
     if (!newDistSecretariat || newDistPercent <= 0) return;
 
     const currentDistributed = distributions.reduce((acc, d) => acc + d.percentage, 0);
     const available = 100 - currentDistributed;
 
     if (newDistPercent > available) {
-      alert(`Atenção: Você só tem ${available}% disponível para distribuir.`);
+      await alert({
+        title: 'Percentual Excedido',
+        message: `Atenção: Você só tem ${available}% disponível para distribuir.`,
+      });
       return;
     }
 
@@ -194,15 +209,18 @@ export const useAtas = (state: AppState, setState: React.Dispatch<React.SetState
     setIsModalOpen(true);
   };
 
-  const handleSaveAta = () => {
+  const handleSaveAta = async () => {
     if (!formData.processNumber || !formData.supplierId || items.length === 0) {
-      alert("Preencha o número do processo, fornecedor e adicione itens.");
+      await alert({
+        title: 'Campos Obrigatórios',
+        message: 'Preencha o número do processo, fornecedor e adicione itens.',
+      });
       return;
     }
 
-    const updatedDistributions = distributions.map(d => ({
+    const updatedDistributions = distributions.map((d) => ({
       ...d,
-      value: (totalValue * d.percentage) / 100
+      value: (totalValue * d.percentage) / 100,
     }));
 
     const ataData: Ata = {
@@ -216,34 +234,82 @@ export const useAtas = (state: AppState, setState: React.Dispatch<React.SetState
       items: items,
       distributions: updatedDistributions,
       reservedPercentage: reservedPercent,
-      createdAt: editingAtaId 
-        ? (state.atas.find(a => a.id === editingAtaId)?.createdAt || new Date().toISOString()) 
-        : new Date().toISOString()
+      createdAt: editingAtaId
+        ? (state.atas.find((a) => a.id === editingAtaId)?.createdAt || new Date().toISOString())
+        : new Date().toISOString(),
     };
 
-    if (editingAtaId) {
-      setState(prev => ({
-        ...prev,
-        atas: prev.atas.map(a => a.id === editingAtaId ? ataData : a)
-      }));
-    } else {
-      setState(prev => ({
-        ...prev,
-        atas: [...(prev.atas || []), ataData]
-      }));
+    if (useApi && tenant?.entidadeId != null) {
+      setApiLoading(true);
+      setApiError('');
+      try {
+        if (editingAtaId) {
+          const updated = await updateAta(parseInt(editingAtaId, 10), {
+            numero_processo: ataData.processNumber,
+            modalidade: ataData.modality,
+            objeto: ataData.object,
+            ano: ataData.year,
+            fornecedor_id: parseInt(ataData.supplierId, 10),
+          });
+          setState((prev) => ({
+            ...prev,
+            atas: prev.atas.map((a) => (a.id === editingAtaId ? updated : a)),
+          }));
+        } else {
+          const created = await createAta(tenant.entidadeId, ataToAtaCreate(ataData, tenant.entidadeId));
+          setState((prev) => ({
+            ...prev,
+            atas: [...(prev.atas || []), created],
+          }));
+        }
+        setIsModalOpen(false);
+        resetForm();
+      } catch (e) {
+        setApiError(e instanceof Error ? e.message : 'Erro ao salvar Ata.');
+      } finally {
+        setApiLoading(false);
+      }
+      return;
     }
 
-    setIsModalOpen(false);
-    resetForm();
+    // API é obrigatória
+    await alert({
+      title: 'API não configurada',
+      message: 'Sistema configurado apenas para API. Faça login e tente novamente.',
+    });
   };
 
-  const handleDeleteAta = (id: string) => {
-    if (confirm("Deseja realmente excluir esta Ata?")) {
-      setState(prev => ({
-        ...prev,
-        atas: prev.atas.filter(a => a.id !== id)
-      }));
+  const handleDeleteAta = async (id: string) => {
+    const confirmed = await confirm({
+      title: 'Confirmar Exclusão',
+      message: 'Deseja realmente excluir esta Ata?',
+      confirmText: 'Excluir',
+      cancelText: 'Cancelar',
+    });
+    if (!confirmed) return;
+
+    if (useApi && tenant?.entidadeId != null) {
+      setApiLoading(true);
+      setApiError('');
+      try {
+        await deleteAta(parseInt(id, 10));
+        setState((prev) => ({
+          ...prev,
+          atas: prev.atas.filter((a) => a.id !== id),
+        }));
+      } catch (e) {
+        setApiError(e instanceof Error ? e.message : 'Erro ao excluir Ata.');
+      } finally {
+        setApiLoading(false);
+      }
+      return;
     }
+
+    // API é obrigatória
+    await alert({
+      title: 'API não configurada',
+      message: 'Sistema configurado apenas para API. Faça login e tente novamente.',
+    });
   };
 
   const resetForm = () => {
@@ -255,18 +321,25 @@ export const useAtas = (state: AppState, setState: React.Dispatch<React.SetState
   };
 
   return {
-    searchTerm, setSearchTerm,
-    isModalOpen, setIsModalOpen,
+    searchTerm,
+    setSearchTerm,
+    isModalOpen,
+    setIsModalOpen,
     editingAtaId,
     isImporting,
     importStatus,
     warningMsg,
     fileInputRef,
-    formData, setFormData,
-    items, setItems,
-    distributions, setDistributions,
-    newDistSecretariat, setNewDistSecretariat,
-    newDistPercent, setNewDistPercent,
+    formData,
+    setFormData,
+    items,
+    setItems,
+    distributions,
+    setDistributions,
+    newDistSecretariat,
+    setNewDistSecretariat,
+    newDistPercent,
+    setNewDistPercent,
     totalValue,
     filteredAtas,
     handleFileUpload,
@@ -280,6 +353,9 @@ export const useAtas = (state: AppState, setState: React.Dispatch<React.SetState
     handleEditAta,
     handleSaveAta,
     handleDeleteAta,
-    resetForm
+    resetForm,
+    apiLoading,
+    apiError,
+    setApiError,
   };
 };

@@ -4,6 +4,7 @@ import { AppState } from '../../types';
 import { useSuppliers } from './hooks/useSuppliers';
 import { SupplierList } from './components/SupplierList';
 import { SupplierForm } from './components/SupplierForm';
+import { SupplierDetailsModal } from './components/SupplierDetailsModal';
 
 interface SuppliersProps {
   state: AppState;
@@ -16,13 +17,19 @@ const Suppliers: React.FC<SuppliersProps> = ({ state, setState }) => {
     setSearchTerm,
     isModalOpen,
     setIsModalOpen,
+    isDetailsModalOpen,
+    selectedSupplier,
+    handleShowDetails,
+    handleCloseDetails,
     form,
     setForm,
     filteredSuppliers,
     formatCNPJ,
     formatPhone,
     handleSave,
-    handleDelete
+    handleUpdate,
+    handleDelete,
+    isLoading
   } = useSuppliers({ state, setState });
 
   return (
@@ -55,6 +62,7 @@ const Suppliers: React.FC<SuppliersProps> = ({ state, setState }) => {
       <SupplierList 
         suppliers={filteredSuppliers}
         onDelete={handleDelete}
+        onShowDetails={handleShowDetails}
       />
 
       <SupplierForm 
@@ -65,6 +73,16 @@ const Suppliers: React.FC<SuppliersProps> = ({ state, setState }) => {
         onSave={handleSave}
         formatCNPJ={formatCNPJ}
         formatPhone={formatPhone}
+      />
+
+      <SupplierDetailsModal
+        isOpen={isDetailsModalOpen}
+        onClose={handleCloseDetails}
+        supplier={selectedSupplier}
+        onSave={handleUpdate}
+        formatCNPJ={formatCNPJ}
+        formatPhone={formatPhone}
+        isLoading={isLoading}
       />
     </div>
   );
