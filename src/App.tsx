@@ -8,6 +8,7 @@ import {
   Settings,
   Menu,
   Users,
+  UserCircle,
   Moon,
   Sun,
   ClipboardList,
@@ -27,6 +28,7 @@ import {
   listNotasFiscais,
   listContasBancarias,
   listOrdensServico,
+  listUsuarios,
 } from './services/api';
 import { TenantProvider } from './contexts/TenantContext';
 import { AlertProvider } from './contexts/AlertContext';
@@ -42,7 +44,12 @@ import SettingsPage from './pages/Settings';
 import Login from './pages/Login';
 import AdminHome from './pages/AdminHome';
 import Landing from './pages/Landing';
+<<<<<<< HEAD
+import UsersPage from './pages/users';
+=======
+>>>>>>> b4e639336eee5b942f6baf8abe5c0c59f049992f
 import { AppState, SystemUser } from './types';
+import { supabaseService } from './services/supabaseService';
 
 const defaultEntity = {
   name: '',
@@ -80,6 +87,11 @@ const TenantLayout: React.FC = () => {
     if (tenantId) return !!getStoredToken(tenantId);
     return false;
   });
+<<<<<<< HEAD
+=======
+
+  // Usuário logado
+>>>>>>> b4e639336eee5b942f6baf8abe5c0c59f049992f
   const [currentUser, setCurrentUser] = useState<SystemUser | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -90,6 +102,7 @@ const TenantLayout: React.FC = () => {
   const [entidadeId, setEntidadeId] = useState<number | null>(null);
 
   useEffect(() => {
+<<<<<<< HEAD
     setOnUnauthorized(() => {
       clearStoredToken(tenantId);
       setIsAuthenticated(false);
@@ -108,6 +121,61 @@ const TenantLayout: React.FC = () => {
       setLoading(false);
       setState(null);
       return;
+=======
+    const loadState = async () => {
+      setLoading(true);
+
+      // Tentar carregar do Supabase primeiro
+      const remoteState = await supabaseService.fetchAppState(tenantId!);
+
+      if (remoteState) {
+        setState(remoteState);
+        setLoading(false);
+        return;
+      }
+
+      // Se não houver no Supabase, tentar localStorage (migração)
+      const dbKey = `erp_db_${tenantId}`;
+      const savedData = localStorage.getItem(dbKey);
+
+      if (savedData) {
+        const parsedData = JSON.parse(savedData);
+
+        // Fallback para bancos antigos
+        if (!parsedData.users) {
+          parsedData.users = [{
+            id: 'admin-legacy',
+            name: 'Admin Legado',
+            username: 'admin',
+            password: 'admin',
+            role: 'admin',
+            createdAt: new Date().toISOString()
+          }];
+        }
+        if (!parsedData.logs) parsedData.logs = [];
+        if (!parsedData.atas) parsedData.atas = [];
+
+        setState(parsedData);
+
+        // Migrar para o Supabase
+        await supabaseService.saveAppState(tenantId!, parsedData);
+        console.log('Dados migrados do localStorage para o Supabase');
+      } else {
+        alert("Entidade não encontrada. Verifique o endereço digitado.");
+        navigate('/');
+      }
+      setLoading(false);
+    };
+
+    loadState();
+  }, [tenantId, navigate]);
+
+  // 2. Salvar Automaticamente quando o state muda
+  useEffect(() => {
+    if (state && tenantId) {
+      localStorage.setItem(`erp_db_${tenantId}`, JSON.stringify(state));
+      supabaseService.saveAppState(tenantId, state);
+>>>>>>> b4e639336eee5b942f6baf8abe5c0c59f049992f
     }
 
     // O middleware detecta automaticamente o tenantId pela URL, não precisa mais setar sessionStorage
@@ -141,13 +209,14 @@ const TenantLayout: React.FC = () => {
         // Continua com array vazio se falhar
       }
       
-      const [entity, suppliers, atas, contracts, invoices, accounts] = await Promise.all([
+      const [entity, suppliers, atas, contracts, invoices, accounts, users] = await Promise.all([
         getEntityConfig(eid),
         listFornecedores(eid),
         listAtas(eid),
         listContratos(eid),
         listNotasFiscais(eid),
         listContasBancarias(eid),
+        listUsuarios(eid),
       ]);
       setState({
         ...defaultAppState,
@@ -158,6 +227,7 @@ const TenantLayout: React.FC = () => {
         invoices,
         accounts,
         serviceOrders,
+        users,
       });
     });
 
@@ -221,13 +291,31 @@ const TenantLayout: React.FC = () => {
 
   if (loading) {
     return (
+<<<<<<< HEAD
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-900 text-white p-6">
         <p className="text-slate-300">Carregando base de dados...</p>
         <p className="text-xs text-slate-500">Aguarde ou verifique se a API está acessível.</p>
+=======
+      <div className="relative">
+        <button
+          onClick={() => navigate('/')}
+          className="absolute top-4 left-4 z-50 flex items-center gap-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white transition-colors bg-white/50 dark:bg-black/50 p-2 rounded-lg"
+        >
+          <ArrowLeft size={20} /> Ir para Início
+        </button>
+        <Login
+          onLogin={handleLogin}
+          users={state.users}
+          entityName={state.entity.name}
+          isDarkMode={isDarkMode}
+          toggleTheme={toggleTheme}
+        />
+>>>>>>> b4e639336eee5b942f6baf8abe5c0c59f049992f
       </div>
     );
   }
 
+<<<<<<< HEAD
   if (loadError && isAuthenticated) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900 text-white p-6">
@@ -302,6 +390,12 @@ const TenantLayout: React.FC = () => {
     location.pathname.endsWith(path)
       ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30 dark:shadow-blue-900/20'
       : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-blue-600 dark:hover:text-blue-400';
+=======
+  const activeLink = (path: string) =>
+    location.pathname.endsWith(path)
+      ? "bg-blue-600 text-white shadow-md shadow-blue-500/30 dark:shadow-blue-900/20"
+      : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-blue-600 dark:hover:text-blue-400";
+>>>>>>> b4e639336eee5b942f6baf8abe5c0c59f049992f
 
   const p = `/${tenantId}`;
 
@@ -335,6 +429,11 @@ const TenantLayoutContent: React.FC<{
 }> = ({ state, setState, p, sidebarOpen, setSidebarOpen, isDarkMode, toggleTheme, handleLogout, activeLink }) => {
   return (
     <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-300">
+<<<<<<< HEAD
+=======
+
+      {/* Sidebar Mobile Overlay */}
+>>>>>>> b4e639336eee5b942f6baf8abe5c0c59f049992f
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden"
@@ -365,6 +464,10 @@ const TenantLayoutContent: React.FC<{
               <Users size={20} />
               Fornecedores
             </Link>
+            <Link to={`${p}/users`} onClick={() => setSidebarOpen(false)} className={`flex items-center gap-3 p-3 rounded-xl transition-all font-medium ${activeLink('users')}`}>
+              <UserCircle size={20} />
+              Usuários
+            </Link>
             <Link to={`${p}/atas`} onClick={() => setSidebarOpen(false)} className={`flex items-center gap-3 p-3 rounded-xl transition-all font-medium ${activeLink('atas')}`}>
               <FileBadge size={20} />
               ATAS / Registro de Preço
@@ -394,7 +497,15 @@ const TenantLayoutContent: React.FC<{
               {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
               {isDarkMode ? 'Modo Claro' : 'Modo Escuro'}
             </button>
+<<<<<<< HEAD
             <Link to={`${p}/settings`} onClick={() => setSidebarOpen(false)} className={`flex items-center gap-3 w-full p-3 rounded-xl transition-all font-medium ${activeLink('settings')}`}>
+=======
+            <Link
+              to={`${p}/settings`}
+              onClick={() => setSidebarOpen(false)}
+              className={`flex items-center gap-3 w-full p-3 rounded-xl transition-all font-medium ${activeLink('settings')}`}
+            >
+>>>>>>> b4e639336eee5b942f6baf8abe5c0c59f049992f
               <Settings size={20} />
               Configurações
             </Link>
@@ -422,6 +533,7 @@ const TenantLayoutContent: React.FC<{
           <Route path="/" element={<Navigate to={`${p}/dashboard`} replace />} />
           <Route path="/dashboard" element={<Dashboard state={state} isDarkMode={isDarkMode} />} />
           <Route path="/suppliers" element={<Suppliers state={state} setState={setState} />} />
+          <Route path="/users" element={<UsersPage state={state} setState={setState} />} />
           <Route path="/atas" element={<Atas state={state} setState={setState} />} />
           <Route path="/contracts/*" element={<Contracts state={state} setState={setState} />} />
           <Route path="/service-orders" element={<ServiceOrders state={state} setState={setState} />} />
