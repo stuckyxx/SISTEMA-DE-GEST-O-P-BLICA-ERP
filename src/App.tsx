@@ -8,6 +8,7 @@ import {
   Settings,
   Menu,
   Users,
+  UserCircle,
   Moon,
   Sun,
   ClipboardList,
@@ -27,6 +28,7 @@ import {
   listNotasFiscais,
   listContasBancarias,
   listOrdensServico,
+  listUsuarios,
 } from './services/api';
 import { TenantProvider } from './contexts/TenantContext';
 import { AlertProvider } from './contexts/AlertContext';
@@ -42,6 +44,7 @@ import SettingsPage from './pages/Settings';
 import Login from './pages/Login';
 import AdminHome from './pages/AdminHome';
 import Landing from './pages/Landing';
+import UsersPage from './pages/users';
 import { AppState, SystemUser } from './types';
 
 const defaultEntity = {
@@ -141,13 +144,14 @@ const TenantLayout: React.FC = () => {
         // Continua com array vazio se falhar
       }
       
-      const [entity, suppliers, atas, contracts, invoices, accounts] = await Promise.all([
+      const [entity, suppliers, atas, contracts, invoices, accounts, users] = await Promise.all([
         getEntityConfig(eid),
         listFornecedores(eid),
         listAtas(eid),
         listContratos(eid),
         listNotasFiscais(eid),
         listContasBancarias(eid),
+        listUsuarios(eid),
       ]);
       setState({
         ...defaultAppState,
@@ -158,6 +162,7 @@ const TenantLayout: React.FC = () => {
         invoices,
         accounts,
         serviceOrders,
+        users,
       });
     });
 
@@ -365,6 +370,10 @@ const TenantLayoutContent: React.FC<{
               <Users size={20} />
               Fornecedores
             </Link>
+            <Link to={`${p}/users`} onClick={() => setSidebarOpen(false)} className={`flex items-center gap-3 p-3 rounded-xl transition-all font-medium ${activeLink('users')}`}>
+              <UserCircle size={20} />
+              Usuários
+            </Link>
             <Link to={`${p}/atas`} onClick={() => setSidebarOpen(false)} className={`flex items-center gap-3 p-3 rounded-xl transition-all font-medium ${activeLink('atas')}`}>
               <FileBadge size={20} />
               ATAS / Registro de Preço
@@ -422,6 +431,7 @@ const TenantLayoutContent: React.FC<{
           <Route path="/" element={<Navigate to={`${p}/dashboard`} replace />} />
           <Route path="/dashboard" element={<Dashboard state={state} isDarkMode={isDarkMode} />} />
           <Route path="/suppliers" element={<Suppliers state={state} setState={setState} />} />
+          <Route path="/users" element={<UsersPage state={state} setState={setState} />} />
           <Route path="/atas" element={<Atas state={state} setState={setState} />} />
           <Route path="/contracts/*" element={<Contracts state={state} setState={setState} />} />
           <Route path="/service-orders" element={<ServiceOrders state={state} setState={setState} />} />

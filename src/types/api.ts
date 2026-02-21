@@ -103,19 +103,20 @@ export interface ClienteUpdate {
 export interface UsuarioResponse {
   id: number;
   username: string;
-  full_name?: string | null;
-  nome?: string | null;
-  role?: string | null;
+  nome: string;
+  role: string;
+  p_delete: string;
   entidade_id?: number | null;
 }
 
-/** Payload POST /usuarios/: backend espera nome, username, senha, role, entidade_id */
+/** Payload POST /usuarios/: backend espera nome, username, senha, role (obrigatórios), entidade_id (opcional) */
 export interface UsuarioCreate {
   nome: string;
   username: string;
   senha: string;
-  role?: string | null;
-  entidade_id: number;
+  role: string;
+  entidade_id?: number | null;
+  p_delete?: string; // Default "N"
 }
 
 export interface UsuarioUpdate {
@@ -123,6 +124,8 @@ export interface UsuarioUpdate {
   senha?: string | null;
   nome?: string | null;
   role?: string | null;
+  entidade_id?: number | null;
+  p_delete?: string | null;
 }
 
 export interface FornecedorResponse {
