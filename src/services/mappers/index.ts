@@ -5,3 +5,4 @@ export * from './contratos';
 export * from './notasFiscais';
 export * from './contasBancarias';
 export * from './ordensServico';
+export * from './usuarios';
