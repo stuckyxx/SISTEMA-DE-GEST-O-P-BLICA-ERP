@@ -19,14 +19,14 @@ const VITE_API_ADMIN_BASE_URL = env?.VITE_API_ADMIN_BASE_URL;
 const isDev = import.meta.env.DEV === true || import.meta.env.MODE === 'development';
 
 // Fallback robusto para URLs da API
-const defaultClientApi = 'https://backgestao.pythonanywhere.com';
-const defaultAdminApi = 'https://backgestao.pythonanywhere.com';
+const defaultClientApi = '/api';
+const defaultAdminApi = '/api-admin';
 
 export const config = {
   /** API do banco do cliente: auth, usuarios, entidades, fornecedores, atas, contratos. Doc: /docs/swagger/ */
-  apiBaseUrl: (VITE_API_BASE_URL || (isDev ? '/api' : defaultClientApi)).replace(/\/$/, ''),
+  apiBaseUrl: (VITE_API_BASE_URL || defaultClientApi).replace(/\/$/, ''),
   /** API Admin: clientes (CRUD). Doc: /apidoc/swagger/ */
-  adminApiBaseUrl: (VITE_API_ADMIN_BASE_URL || (isDev ? '/api-admin' : defaultAdminApi)).replace(/\/$/, ''),
+  adminApiBaseUrl: (VITE_API_ADMIN_BASE_URL || defaultAdminApi).replace(/\/$/, ''),
 } as const;
 
 // Debug: log da configuração em desenvolvimento
