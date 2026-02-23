@@ -1,16 +1,18 @@
-
-import React, { useState } from 'react';
-import { 
-  Building2, 
-  MapPin, 
-  Phone, 
-  Globe, 
-  Save, 
+import React, { useState, useEffect } from 'react';
+import {
+  Building2,
+  MapPin,
+  Phone,
+  Globe,
+  Save,
   Landmark,
-  ShieldCheck,
-  Mail
+  Mail,
 } from 'lucide-react';
 import { AppState, EntityConfig } from '../types';
+import { useTenantOptional } from '../contexts/TenantContext';
+import { useAlert } from '../contexts/AlertContext';
+import { updateEntidade } from '../services/api';
+import { entityConfigToEntidadeUpdate, entidadeResponseToEntityConfig } from '../services/mappers';
 
 interface SettingsProps {
   state: AppState;
@@ -18,22 +20,64 @@ interface SettingsProps {
 }
 
 const SettingsPage: React.FC<SettingsProps> = ({ state, setState }) => {
-  // Local state to manage form inputs
   const [form, setForm] = useState<EntityConfig>(state.entity);
-  const [showSuccess, setShowSuccess] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const tenant = useTenantOptional();
+  const { alert, success, error: showError } = useAlert();
+  const useApi = tenant?.entidadeId != null;
+
+  useEffect(() => {
+    setForm(state.entity);
+  }, [state.entity]);
 
   const handleChange = (field: keyof EntityConfig, value: string) => {
-    setForm(prev => ({ ...prev, [field]: value }));
+    setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleSave = () => {
-    setState(prev => ({
-      ...prev,
-      entity: form
-    }));
-    
-    setShowSuccess(true);
-    setTimeout(() => setShowSuccess(false), 3000);
+  const handleSave = async () => {
+    if (!useApi || !tenant?.entidadeId) {
+      await alert({
+        title: 'API não configurada',
+        message: 'Sistema configurado apenas para API. Faça login e tente novamente.',
+      });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      // Chama a API e usa a resposta para atualizar o estado
+      const updated = await updateEntidade(tenant.entidadeId, entityConfigToEntidadeUpdate(form));
+      const updatedEntityConfig = entidadeResponseToEntityConfig(updated);
+      
+      setState((prev) => ({ ...prev, entity: updatedEntityConfig }));
+      setForm(updatedEntityConfig); // Atualiza o form com os dados retornados da API
+      
+      await success({
+        title: 'Sucesso!',
+        message: 'Os dados da entidade foram atualizados e refletirão em todos os relatórios.',
+      });
+    } catch (e: any) {
+      // Extrai mensagem de erro detalhada da API se disponível
+      let errorMessage = 'Erro ao salvar configurações.';
+      if (e?.response?.data) {
+        if (typeof e.response.data === 'string') {
+          errorMessage = e.response.data;
+        } else if (e.response.data.detail) {
+          errorMessage = e.response.data.detail;
+        } else if (e.response.data.message) {
+          errorMessage = e.response.data.message;
+        }
+      } else if (e instanceof Error) {
+        errorMessage = e.message;
+      }
+      
+      await showError({
+        title: 'Erro ao Salvar',
+        message: errorMessage,
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -43,24 +87,16 @@ const SettingsPage: React.FC<SettingsProps> = ({ state, setState }) => {
           <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Configurações do Sistema</h2>
           <p className="text-slate-500 dark:text-slate-400">Dados da entidade pública para emissão de documentos.</p>
         </div>
-        <button 
+        <button
           onClick={handleSave}
-          className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl transition-all font-bold shadow-lg shadow-blue-200 dark:shadow-blue-900/30 active:scale-95"
+          disabled={saving}
+          className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-70 text-white px-8 py-3 rounded-xl transition-all font-bold shadow-lg shadow-blue-200 dark:shadow-blue-900/30 active:scale-95"
         >
           <Save size={20} />
-          Salvar Alterações
+          {saving ? 'Salvando...' : 'Salvar Alterações'}
         </button>
       </div>
 
-      {showSuccess && (
-        <div className="bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 px-6 py-4 rounded-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
-          <ShieldCheck size={24} />
-          <div>
-            <p className="font-bold">Sucesso!</p>
-            <p className="text-sm">Os dados da entidade foram atualizados e refletirão em todos os relatórios.</p>
-          </div>
-        </div>
-      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
         

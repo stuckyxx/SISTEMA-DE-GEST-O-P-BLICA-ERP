@@ -1,7 +1,7 @@
 import React from 'react';
 import { Trash2, Pencil } from 'lucide-react';
 import { AppState, Invoice } from '../../../types';
-import { formatCurrency } from '../../../utils/format';
+import { formatCurrency, formatDate } from '../../../utils/format';
 
 interface InvoiceListProps {
   invoices: Invoice[];
@@ -38,7 +38,7 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
                 <tr key={inv.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                   <td className="px-6 py-4 font-bold text-slate-700 dark:text-slate-200">NF {inv.number}</td>
                   <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{contract?.number}</td>
-                  <td className="px-6 py-4 text-slate-600 dark:text-slate-400 text-center">{new Date(inv.issueDate).toLocaleDateString()}</td>
+                  <td className="px-6 py-4 text-slate-600 dark:text-slate-400 text-center">{formatDate(inv.issueDate)}</td>
                   <td className="px-6 py-4 text-center">
                     <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-tight ${inv.isPaid ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400'}`}>
                       {inv.isPaid ? 'Paga' : 'Pendente'}

@@ -159,7 +159,9 @@ export type AppState = {
 };
 
 export interface Tenant {
-  id: string; // slug (ex: 'prefeitura-sp')
+  id: string; // id numérico do cliente na API
   name: string;
+  /** Link/URL da instância digitado no cadastro (ex: pm-anajatuba-ma) */
+  urlInstancia?: string;
   createdAt: string;
 }

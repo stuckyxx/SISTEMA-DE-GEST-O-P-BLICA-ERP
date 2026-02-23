@@ -1,8 +1,17 @@
 import { useMemo, useState, useEffect } from 'react';
 import { AppState, Contract, ContractItem } from '../../../types';
 import { formatCurrency } from '../../../utils/format';
+import { useTenantOptional } from '../../../contexts/TenantContext';
+import { useAlert } from '../../../contexts/AlertContext';
+import { createContrato, updateContrato, deleteContrato } from '../../../services/api';
+import { contractToContratoCreate } from '../../../services/mappers';
 
 export const useContracts = (state: AppState, setState: React.Dispatch<React.SetStateAction<AppState>>) => {
+  const { alert, confirm } = useAlert();
+  const tenant = useTenantOptional();
+  const useApi = tenant?.entidadeId != null;
+  const [apiLoading, setApiLoading] = useState(false);
+  const [apiError, setApiError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
@@ -122,26 +131,45 @@ export const useContracts = (state: AppState, setState: React.Dispatch<React.Set
     setIsRegistering(true);
   };
 
-  const handleSaveContract = () => {
+  const applyContractToState = (contract: Contract) => {
+    setState((prev) => {
+      const idx = prev.contracts.findIndex((c) => c.id === contract.id);
+      const next = [...prev.contracts];
+      if (idx >= 0) next[idx] = contract;
+      else next.push(contract);
+      return { ...prev, contracts: next };
+    });
+  };
+
+  const handleSaveContract = async () => {
     if (!formContract.number || !formContract.supplierId || !formContract.biddingModality || !formContract.startDate || !formContract.endDate) {
-      alert("Por favor, preencha todos os dados básicos do contrato.");
+      await alert({
+        title: 'Campos Obrigatórios',
+        message: 'Por favor, preencha todos os dados básicos do contrato.',
+      });
       return;
     }
-
-    // Validação de Saldo da Ata
     if (originType === 'ata') {
       if (!formContract.ataId || !formContract.secretariat) {
-        alert("Para contratos via Ata, selecione a Ata e a Secretaria.");
+        await alert({
+          title: 'Campos Obrigatórios',
+          message: 'Para contratos via Ata, selecione a Ata e a Secretaria.',
+        });
         return;
       }
       if (ataBalanceInfo && globalTotal > ataBalanceInfo.available) {
-        alert(`O valor do contrato (${formatCurrency(globalTotal)}) excede o saldo disponível para a secretaria (${formatCurrency(ataBalanceInfo.available)}).`);
+        await alert({
+          title: 'Valor Excedido',
+          message: `O valor do contrato (${formatCurrency(globalTotal)}) excede o saldo disponível para a secretaria (${formatCurrency(ataBalanceInfo.available)}).`,
+        });
         return;
       }
     }
-
-    if (formItems.some(item => !item.description || (item.originalQty || 0) <= 0)) {
-      alert("Verifique se todos os itens possuem descrição e quantidade válida.");
+    if (formItems.some((item) => !item.description || (item.originalQty || 0) <= 0)) {
+      await alert({
+        title: 'Itens Inválidos',
+        message: 'Verifique se todos os itens possuem descrição e quantidade válida.',
+      });
       return;
     }
 
@@ -153,65 +181,51 @@ export const useContracts = (state: AppState, setState: React.Dispatch<React.Set
       endDate: formContract.endDate,
       globalValue: globalTotal,
       ataId: originType === 'ata' ? formContract.ataId : undefined,
-      secretariat: originType === 'ata' ? formContract.secretariat : undefined
+      secretariat: originType === 'ata' ? formContract.secretariat : undefined,
     };
 
-    if (editingId) {
-      setState(prev => ({
-        ...prev,
-        contracts: prev.contracts.map(c => {
-          if (c.id === editingId) {
-            const updatedItems: ContractItem[] = formItems.map(fItem => {
-              const existingItem = c.items.find(old => old.id === fItem.id);
-              if (existingItem) {
-                const qtyDifference = (fItem.originalQty || 0) - existingItem.originalQty;
-                return {
-                  ...existingItem,
-                  description: fItem.description!,
-                  unit: fItem.unit!,
-                  unitPrice: fItem.unitPrice!,
-                  originalQty: fItem.originalQty!,
-                  currentBalance: existingItem.currentBalance + qtyDifference
-                };
-              } else {
-                return {
-                  id: fItem.id || Math.random().toString(36).substr(2, 9),
-                  description: fItem.description!,
-                  unit: fItem.unit!,
-                  originalQty: fItem.originalQty!,
-                  unitPrice: fItem.unitPrice!,
-                  currentBalance: fItem.originalQty!
-                };
-              }
-            });
-
-            return { ...c, ...contractData, items: updatedItems };
-          }
-          return c;
-        })
-      }));
-    } else {
-      const newContract: Contract = {
-        id: Math.random().toString(36).substr(2, 9),
-        ...contractData,
-        items: formItems.map(item => ({
-          id: item.id!,
-          description: item.description || '',
-          unit: item.unit || 'UNID',
-          originalQty: item.originalQty || 0,
-          unitPrice: item.unitPrice || 0,
-          currentBalance: item.originalQty || 0
-        }))
-      };
-
-      setState(prev => ({
-        ...prev,
-        contracts: [...prev.contracts, newContract]
-      }));
+    if (useApi && tenant?.entidadeId != null) {
+      setApiLoading(true);
+      setApiError('');
+      try {
+        if (editingId) {
+          const updated = await updateContrato(parseInt(editingId, 10), {
+            numero_contrato: formContract.number,
+            data_fim: formContract.endDate,
+            modalidade: formContract.biddingModality || null,
+          });
+          applyContractToState(updated);
+        } else {
+          const newContract: Contract = {
+            id: '',
+            ...contractData,
+            items: formItems.map((item) => ({
+              id: item.id!,
+              description: item.description || '',
+              unit: item.unit || 'UNID',
+              originalQty: item.originalQty || 0,
+              unitPrice: item.unitPrice || 0,
+              currentBalance: item.originalQty || 0,
+            })),
+          };
+          const created = await createContrato(tenant.entidadeId, contractToContratoCreate(newContract, tenant.entidadeId, originType));
+          applyContractToState(created);
+        }
+        setIsRegistering(false);
+        resetForm();
+      } catch (e) {
+        setApiError(e instanceof Error ? e.message : 'Erro ao salvar contrato.');
+      } finally {
+        setApiLoading(false);
+      }
+      return;
     }
 
-    setIsRegistering(false);
-    resetForm();
+    // API é obrigatória
+    await alert({
+      title: 'API não configurada',
+      message: 'Sistema configurado apenas para API. Faça login e tente novamente.',
+    });
   };
 
   const resetForm = () => {
@@ -221,25 +235,48 @@ export const useContracts = (state: AppState, setState: React.Dispatch<React.Set
     setFormItems([{ id: '1', description: '', unit: 'UNID', originalQty: 0, unitPrice: 0 }]);
   };
 
-  const handleDeleteContract = (e: React.MouseEvent | null, id: string) => {
-    if(e) e.stopPropagation();
-    
-    const hasInvoices = state.invoices.some(i => i.contractId === id);
+  const handleDeleteContract = async (e: React.MouseEvent | null, id: string) => {
+    if (e) e.stopPropagation();
+    const hasInvoices = state.invoices.some((i) => i.contractId === id);
     if (hasInvoices) {
-      alert("Não é possível excluir: existem notas fiscais ou movimentações vinculadas a este contrato.");
+      await alert({
+        title: 'Não é possível excluir',
+        message: 'Não é possível excluir: existem notas fiscais ou movimentações vinculadas a este contrato.',
+      });
       return;
     }
-    if (window.confirm("Atenção: Deseja realmente excluir este contrato permanentemente?")) {
-      setState(prev => ({
-        ...prev,
-        contracts: prev.contracts.filter(c => c.id !== id)
-      }));
-      if (selectedContract?.id === id) setSelectedContract(null);
-      if (isRegistering) {
-        setIsRegistering(false);
-        resetForm();
+    const confirmed = await confirm({
+      title: 'Confirmar Exclusão',
+      message: 'Atenção: Deseja realmente excluir este contrato permanentemente?',
+      confirmText: 'Excluir',
+      cancelText: 'Cancelar',
+    });
+    if (!confirmed) return;
+
+    if (useApi && tenant?.entidadeId != null) {
+      setApiLoading(true);
+      setApiError('');
+      try {
+        await deleteContrato(parseInt(id, 10));
+        setState((prev) => ({ ...prev, contracts: prev.contracts.filter((c) => c.id !== id) }));
+        if (selectedContract?.id === id) setSelectedContract(null);
+        if (isRegistering) {
+          setIsRegistering(false);
+          resetForm();
+        }
+      } catch (err) {
+        setApiError(err instanceof Error ? err.message : 'Erro ao excluir contrato.');
+      } finally {
+        setApiLoading(false);
       }
+      return;
     }
+
+    // API é obrigatória
+    await alert({
+      title: 'API não configurada',
+      message: 'Sistema configurado apenas para API. Faça login e tente novamente.',
+    });
   };
 
   // Quando muda a Ata, limpar a secretaria
@@ -260,13 +297,18 @@ export const useContracts = (state: AppState, setState: React.Dispatch<React.Set
   }, [formContract.ataId, originType, state.atas]);
 
   return {
-    searchTerm, setSearchTerm,
-    selectedContract, setSelectedContract,
-    isRegistering, setIsRegistering,
+    searchTerm,
+    setSearchTerm,
+    selectedContract,
+    setSelectedContract,
+    isRegistering,
+    setIsRegistering,
     editingId,
-    formContract, setFormContract,
-    originType, setOriginType,
-    formItems, 
+    formContract,
+    setFormContract,
+    originType,
+    setOriginType,
+    formItems,
     ataBalanceInfo,
     filteredContracts,
     globalTotal,
@@ -278,6 +320,9 @@ export const useContracts = (state: AppState, setState: React.Dispatch<React.Set
     handleEditContract,
     handleSaveContract,
     handleDeleteContract,
-    resetForm
+    resetForm,
+    apiLoading,
+    apiError,
+    setApiError,
   };
 };

@@ -17,7 +17,7 @@ interface AtaFormProps {
   handleAddItem: () => void;
   totalValue: number;
   distributions: AtaDistribution[];
-  handleAddDistribution: () => void;
+  handleAddDistribution: () => Promise<void>;
   removeDistribution: (id: string) => void;
   newDistSecretariat: string;
   setNewDistSecretariat: (val: string) => void;

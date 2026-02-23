@@ -1,12 +1,12 @@
-
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Building2, 
-  Plus, 
-  Database, 
-  ArrowRight, 
-  Trash2, 
+import { useForm } from 'react-hook-form';
+import {
+  Building2,
+  Plus,
+  Database,
+  ArrowRight,
+  Trash2,
   ShieldCheck,
   Server,
   LayoutDashboard,
@@ -21,204 +21,361 @@ import {
   X,
   UserPlus,
   Activity,
-  Key
+  Key,
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Tenant, AppState, SystemUser, SystemLog } from '../types';
+import { useAlert } from '../contexts/AlertContext';
+import {
+  listClientes,
+  getClienteById,
+  createCliente,
+  deleteCliente,
+  updateCliente,
+  listUsuarios,
+  createUsuario,
+  deleteUsuario,
+  adminLogin,
+  clearStoredToken,
+} from '../services/api';
+
+const MASTER_TENANT_ID = 'master';
+
+const emptyAppState = (entityName: string): AppState => ({
+  entity: {
+    name: entityName,
+    secretary: '',
+    cnpj: '',
+    address: '',
+    city: '',
+    state: '',
+    zipCode: '',
+    phone: '',
+    email: '',
+    website: '',
+  },
+  users: [],
+  logs: [],
+  suppliers: [],
+  accounts: [],
+  atas: [],
+  contracts: [],
+  invoices: [],
+  serviceOrders: [],
+});
 
 const AdminHome: React.FC = () => {
   const navigate = useNavigate();
-  
-  // Auth State
+  const { alert, confirm, error: showError, success } = useAlert();
+
+  // Nota: O middleware detecta automaticamente que estamos no contexto admin pela URL /master-panel
+  // e configura o adminApiClient corretamente. A verificação de autenticação abaixo é apenas
+  // para controlar o estado da UI (mostrar login vs conteúdo).
   const [isMasterAuthenticated, setIsMasterAuthenticated] = useState(() => {
     return sessionStorage.getItem('master_auth') === 'true';
   });
-  const [masterPassword, setMasterPassword] = useState('');
   const [authError, setAuthError] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
 
-  // Tenants Data
   const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [tenantsLoading, setTenantsLoading] = useState(false);
+  const [tenantsError, setTenantsError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const [newOrgName, setNewOrgName] = useState('');
-  const [newOrgSlug, setNewOrgSlug] = useState('');
+  const [createLoading, setCreateLoading] = useState(false);
 
-  // --- MANAGER STATE (Gestão de um banco específico) ---
   const [managedTenantId, setManagedTenantId] = useState<string | null>(null);
   const [managedDb, setManagedDb] = useState<AppState | null>(null);
   const [managerTab, setManagerTab] = useState<'info' | 'users' | 'logs' | 'config'>('info');
-  
-  // New User Form State
-  const [newUserForm, setNewUserForm] = useState({ name: '', username: '', password: '', role: 'viewer' });
 
+  /** Doc backend: POST /auth/login → JSON { username, password } */
+  const masterLoginForm = useForm<{ username: string; password: string }>({
+    defaultValues: { username: '', password: '' },
+  });
+
+  /** Doc backend: POST /clientes/ → ClienteCreate (nome_fantasia, razao_social, cnpj, uf, data_inicio, data_fim, url_instancia, ...) */
+  const newClienteForm = useForm<{
+    nome_fantasia: string;
+    razao_social: string;
+    cnpj: string;
+    uf: string;
+    data_inicio: string;
+    data_fim: string;
+    url_instancia: string;
+  }>({
+    defaultValues: {
+      nome_fantasia: '',
+      razao_social: '',
+      cnpj: '',
+      uf: 'MA',
+      data_inicio: '',
+      data_fim: '',
+      url_instancia: '',
+    },
+  });
+
+  /** Doc backend: POST /usuarios/ → UsuarioCreate (username, password, full_name/nome, role, entidade_id) */
+  const newUserFormHook = useForm<{ name: string; username: string; password: string; role: string }>({
+    defaultValues: { name: '', username: '', password: '', role: 'viewer' },
+  });
+
+  // Limpa dados antigos do localStorage (migração: painel usa apenas API)
   useEffect(() => {
-    if (isMasterAuthenticated) {
-      const savedTenants = localStorage.getItem('erp_tenants');
-      if (savedTenants) {
-        setTenants(JSON.parse(savedTenants));
+    if (!isMasterAuthenticated) return;
+    try {
+      localStorage.removeItem('erp_tenants');
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key?.startsWith('erp_db_')) keysToRemove.push(key);
       }
-    }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    } catch (_) {}
   }, [isMasterAuthenticated]);
 
-  // Carregar dados do banco quando abrir o gerenciador
   useEffect(() => {
-    if (managedTenantId) {
-      const dbStr = localStorage.getItem(`erp_db_${managedTenantId}`);
-      if (dbStr) {
-        let dbData: AppState = JSON.parse(dbStr);
-        // Migração: Se o banco antigo não tiver usuários ou logs, cria arrays vazios
-        if (!dbData.users) dbData.users = [];
-        if (!dbData.logs) dbData.logs = [];
-        if (!dbData.atas) dbData.atas = []; // Migração para Atas
-        setManagedDb(dbData);
-      }
-    } else {
+    if (!isMasterAuthenticated) return;
+    setTenantsLoading(true);
+    setTenantsError(null);
+    listClientes()
+      .then((list) => {
+        setTenants(
+          list.map((c) => ({
+            id: String(c.id),
+            name: c.nome_fantasia,
+            urlInstancia: c.url_instancia || undefined,
+            createdAt: '',
+          }))
+        );
+      })
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        const isUnauthorized = /401|unauthorized|não autorizado|não autenticado|not authenticated/i.test(msg);
+        setTenantsError(
+          isUnauthorized
+            ? 'É necessário estar logado na API. Faça login e tente novamente.'
+            : msg || 'Erro ao carregar clientes.'
+        );
+        setTenants([]);
+      })
+      .finally(() => setTenantsLoading(false));
+  }, [isMasterAuthenticated]);
+
+  useEffect(() => {
+    if (!managedTenantId) {
       setManagedDb(null);
+      return;
     }
+    const eid = parseInt(managedTenantId, 10);
+    if (!Number.isFinite(eid)) {
+      setManagedDb(null);
+      return;
+    }
+    getClienteById(eid)
+      .then((cliente) => {
+        const baseState = {
+          ...emptyAppState(cliente.nome_fantasia),
+          entity: {
+            name: cliente.nome_fantasia,
+            secretary: '',
+            cnpj: cliente.cnpj,
+            address: '',
+            city: '',
+            state: cliente.uf,
+            zipCode: '',
+            phone: '',
+            email: '',
+            website: cliente.url_instancia || '',
+          },
+        };
+        listUsuarios(eid)
+          .then((usuarios) => {
+            const users: SystemUser[] = usuarios
+              .filter((u) => u.entidade_id == null || u.entidade_id === eid)
+              .map((u) => ({
+                id: String(u.id),
+                name: (u.full_name ?? u.nome ?? u.username) || '',
+                username: u.username,
+                password: '',
+                role: (u.role === 'admin' || u.role === 'viewer' ? u.role : 'viewer') as 'admin' | 'viewer',
+                createdAt: '',
+              }));
+            setManagedDb({ ...baseState, users });
+          })
+          .catch(() => {
+            setManagedDb({ ...baseState, users: [] });
+          });
+      })
+      .catch(() => setManagedDb(null));
   }, [managedTenantId]);
 
-  const handleMasterLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (masterPassword === 'admin') {
-      setIsMasterAuthenticated(true);
+  const onMasterLogin = async (data: { username: string; password: string }) => {
+    setAuthError('');
+    setAuthLoading(true);
+    try {
+      await adminLogin(data.username.trim(), data.password, MASTER_TENANT_ID);
       sessionStorage.setItem('master_auth', 'true');
-      setAuthError('');
-    } else {
-      setAuthError('Credencial de acesso negada.');
+      setIsMasterAuthenticated(true);
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : 'Credenciais inválidas. Tente novamente.');
+    } finally {
+      setAuthLoading(false);
     }
   };
 
-  const handleCreateTenant = () => {
-    if (!newOrgName || !newOrgSlug) {
-      alert("Preencha o nome e o identificador (slug).");
-      return;
-    }
-    const sanitizedSlug = newOrgSlug.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-    if (tenants.find(t => t.id === sanitizedSlug)) {
-      alert("Este identificador já existe. Escolha outro.");
-      return;
-    }
-
-    const newTenant: Tenant = {
-      id: sanitizedSlug,
-      name: newOrgName,
-      createdAt: new Date().toISOString()
-    };
-
-    // Cria o banco com usuário ADMIN padrão
-    const initialDbState: AppState = {
-      entity: {
-        name: newOrgName.toUpperCase(),
-        secretary: 'Secretaria Administrativa',
-        cnpj: '',
-        address: '',
-        city: '',
-        state: '',
-        zipCode: '',
-        phone: '',
-        email: '',
-        website: ''
-      },
-      users: [
-        {
-          id: 'admin-1',
-          name: 'Administrador Padrão',
-          username: 'admin',
-          password: '123', // Senha padrão para novos bancos
-          role: 'admin',
-          createdAt: new Date().toISOString()
-        }
-      ],
-      logs: [
-        {
-          id: 'log-init',
-          timestamp: new Date().toISOString(),
-          action: 'DB_CREATED',
-          details: 'Banco de dados inicializado pelo Painel Master',
-          user: 'MASTER'
-        }
-      ],
-      suppliers: [],
-      accounts: [],
-      atas: [], // Inicialização do array de Atas
-      contracts: [],
-      invoices: [],
-      serviceOrders: []
-    };
-
-    localStorage.setItem(`erp_db_${sanitizedSlug}`, JSON.stringify(initialDbState));
-    const updatedTenants = [...tenants, newTenant];
-    setTenants(updatedTenants);
-    localStorage.setItem('erp_tenants', JSON.stringify(updatedTenants));
-
-    setIsCreating(false);
-    setNewOrgName('');
-    setNewOrgSlug('');
+  type NewClienteFormValues = {
+    nome_fantasia: string;
+    razao_social: string;
+    cnpj: string;
+    uf: string;
+    data_inicio: string;
+    data_fim: string;
+    url_instancia: string;
   };
 
-  const handleDeleteTenant = (e: React.MouseEvent, id: string) => {
+  const onCreateCliente = async (data: NewClienteFormValues) => {
+    const cnpjRaw = (data.cnpj || '').trim().replace(/\D/g, '');
+    if (cnpjRaw.length !== 14) {
+      await alert({
+        title: 'CNPJ Inválido',
+        message: 'CNPJ deve conter 14 dígitos.',
+      });
+      return;
+    }
+    const cnpj = cnpjRaw.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+    const hoje = new Date();
+    const dataInicio = data.data_inicio || hoje.toISOString().slice(0, 10);
+    const dataFim = data.data_fim || new Date(hoje.getFullYear() + 1, hoje.getMonth(), hoje.getDate()).toISOString().slice(0, 10);
+    setCreateLoading(true);
+    try {
+      const created = await createCliente({
+        nome_fantasia: data.nome_fantasia.trim(),
+        razao_social: (data.razao_social || '').trim() || data.nome_fantasia.trim(),
+        cnpj,
+        uf: data.uf || 'MA',
+        data_inicio: dataInicio,
+        data_fim: dataFim,
+        status_cliente: 'ATIVO',
+        status_interno: 'IMPLANTACAO',
+        url_instancia: (data.url_instancia || '').trim() || `https://${data.nome_fantasia.trim().toLowerCase().replace(/\s+/g, '-')}.gestao.com.br`,
+      });
+      setTenants((prev) => [...prev, { id: String(created.id), name: created.nome_fantasia, urlInstancia: created.url_instancia || undefined, createdAt: '' }]);
+      setIsCreating(false);
+      newClienteForm.reset();
+    } catch (err) {
+      await showError({
+        title: 'Erro ao Criar Cliente',
+        message: err instanceof Error ? err.message : 'Erro ao criar cliente.',
+      });
+    } finally {
+      setCreateLoading(false);
+    }
+  };
+
+  const handleDeleteTenant = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (confirm(`ATENÇÃO: Isso excluirá TODO o banco de dados de "${id}". Esta ação é irreversível. Confirmar?`)) {
-      const updatedTenants = tenants.filter(t => t.id !== id);
-      setTenants(updatedTenants);
-      localStorage.setItem('erp_tenants', JSON.stringify(updatedTenants));
-      localStorage.removeItem(`erp_db_${id}`);
+    const tenant = tenants.find((t) => t.id === id);
+    const confirmed = await confirm({
+      title: 'Confirmar Exclusão',
+      message: `ATENÇÃO: Isso excluirá o cliente "${tenant?.name ?? id}". Esta ação é irreversível. Confirmar?`,
+      confirmText: 'Excluir',
+      cancelText: 'Cancelar',
+    });
+    if (!confirmed) return;
+    const eid = parseInt(id, 10);
+    if (!Number.isFinite(eid)) return;
+    try {
+      await deleteCliente(eid);
+      setTenants((prev) => prev.filter((t) => t.id !== id));
+      if (managedTenantId === id) setManagedTenantId(null);
+    } catch (err) {
+      await showError({
+        title: 'Erro ao Excluir Cliente',
+        message: err instanceof Error ? err.message : 'Erro ao excluir cliente.',
+      });
     }
   };
 
   // --- MANAGER ACTIONS ---
 
-  const saveManagedDb = (updatedDb: AppState, logAction?: string, logDetails?: string) => {
+  const saveManagedDb = async (updatedDb: AppState, _logAction?: string, _logDetails?: string) => {
     if (!managedTenantId) return;
+    const eid = parseInt(managedTenantId, 10);
+    if (!Number.isFinite(eid)) return;
+    try {
+      await updateCliente(eid, {
+        nome_fantasia: updatedDb.entity.name,
+        cnpj: updatedDb.entity.cnpj,
+        uf: updatedDb.entity.state || null,
+        url_instancia: updatedDb.entity.website || null,
+      });
+      setManagedDb(updatedDb);
+    } catch (err) {
+      await showError({
+        title: 'Erro ao Salvar Configuração',
+        message: err instanceof Error ? err.message : 'Erro ao salvar configuração.',
+      });
+    }
+  };
 
-    // Adicionar Log Automático
-    if (logAction) {
-      const newLog: SystemLog = {
-        id: Math.random().toString(36).substr(2, 9),
-        timestamp: new Date().toISOString(),
-        action: logAction,
-        details: logDetails || '',
-        user: 'MASTER_PANEL'
+  const onAddUser = async (data: { name: string; username: string; password: string; role: string }) => {
+    if (!managedDb || !managedTenantId) return;
+    const eid = parseInt(managedTenantId, 10);
+    if (!Number.isFinite(eid)) return;
+    try {
+      const created = await createUsuario({
+        nome: data.name.trim() || '',
+        username: data.username.trim(),
+        senha: data.password,
+        role: data.role,
+        entidade_id: eid,
+      });
+      const newUser: SystemUser = {
+        id: String(created.id),
+        name: (created.full_name ?? created.nome ?? created.username) || '',
+        username: created.username,
+        password: '',
+        role: (created.role === 'admin' || created.role === 'viewer' ? created.role : 'viewer') as 'admin' | 'viewer',
+        createdAt: '',
       };
-      updatedDb.logs = [newLog, ...updatedDb.logs];
-    }
-
-    localStorage.setItem(`erp_db_${managedTenantId}`, JSON.stringify(updatedDb));
-    setManagedDb(updatedDb);
-  };
-
-  const handleAddUser = () => {
-    if (!managedDb) return;
-    if (!newUserForm.name || !newUserForm.username || !newUserForm.password) {
-      alert("Preencha todos os campos do usuário.");
-      return;
-    }
-
-    const newUser: SystemUser = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: newUserForm.name,
-      username: newUserForm.username,
-      password: newUserForm.password,
-      role: newUserForm.role as 'admin' | 'viewer',
-      createdAt: new Date().toISOString()
-    };
-
-    const updatedDb = { ...managedDb, users: [...managedDb.users, newUser] };
-    saveManagedDb(updatedDb, 'USER_CREATED', `Usuário ${newUser.username} criado via Painel Master`);
-    setNewUserForm({ name: '', username: '', password: '', role: 'viewer' });
-  };
-
-  const handleRemoveUser = (userId: string) => {
-    if (!managedDb) return;
-    if (confirm("Remover este usuário?")) {
-       const updatedDb = { ...managedDb, users: managedDb.users.filter(u => u.id !== userId) };
-       saveManagedDb(updatedDb, 'USER_DELETED', `Usuário ID ${userId} removido via Painel Master`);
+      setManagedDb((prev) => (prev ? { ...prev, users: [...prev.users, newUser] } : null));
+      newUserFormHook.reset();
+    } catch (err) {
+      await showError({
+        title: 'Erro ao Criar Usuário',
+        message: err instanceof Error ? err.message : 'Erro ao criar usuário no backend.',
+      });
     }
   };
 
-  const handleUpdateConfig = () => {
+  const handleRemoveUser = async (userId: string) => {
     if (!managedDb) return;
-    saveManagedDb(managedDb, 'CONFIG_UPDATED', 'Configurações da entidade atualizadas via Painel Master');
-    alert("Configurações salvas no banco do cliente.");
+    const confirmed = await confirm({
+      title: 'Confirmar Remoção',
+      message: 'Remover este usuário? Ele não poderá mais acessar a instância.',
+      confirmText: 'Remover',
+      cancelText: 'Cancelar',
+    });
+    if (!confirmed) return;
+    const id = parseInt(userId, 10);
+    if (!Number.isFinite(id)) return;
+    try {
+      await deleteUsuario(id);
+      setManagedDb((prev) => (prev ? { ...prev, users: prev.users.filter((u) => u.id !== userId) } : null));
+    } catch (err) {
+      await showError({
+        title: 'Erro ao Remover Usuário',
+        message: err instanceof Error ? err.message : 'Erro ao remover usuário.',
+      });
+    }
+  };
+
+  const handleUpdateConfig = async () => {
+    if (!managedDb) return;
+    await saveManagedDb(managedDb);
+    await success({
+      title: 'Sucesso!',
+      message: 'Configurações salvas.',
+    });
   };
 
   // -----------------------
@@ -242,18 +399,28 @@ const AdminHome: React.FC = () => {
           <h2 className="text-2xl font-black text-white text-center mb-2">Painel Master</h2>
           <p className="text-slate-400 text-center text-sm mb-8">Área exclusiva para criação e gestão de bancos de dados dos clientes.</p>
           
-          <form onSubmit={handleMasterLogin} className="space-y-4">
+          <form onSubmit={masterLoginForm.handleSubmit(onMasterLogin)} className="space-y-4">
             <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-500 uppercase ml-1">Senha Mestra</label>
-              <input 
-                type="password" 
+              <label className="text-xs font-bold text-slate-500 uppercase ml-1">Usuário (API)</label>
+              <input
+                type="text"
+                autoComplete="username"
                 className="w-full p-4 rounded-xl bg-slate-950 border border-slate-800 text-white outline-none focus:border-red-500 focus:ring-4 focus:ring-red-500/10 transition-all font-bold"
-                placeholder="••••••••••••"
-                value={masterPassword}
-                onChange={(e) => setMasterPassword(e.target.value)}
+                placeholder="Ex: admin"
+                {...masterLoginForm.register('username', { required: 'Informe o usuário' })}
               />
             </div>
-            
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-500 uppercase ml-1">Senha (API)</label>
+              <input
+                type="password"
+                autoComplete="current-password"
+                className="w-full p-4 rounded-xl bg-slate-950 border border-slate-800 text-white outline-none focus:border-red-500 focus:ring-4 focus:ring-red-500/10 transition-all font-bold"
+                placeholder="••••••••••••"
+                {...masterLoginForm.register('password', { required: 'Informe a senha' })}
+              />
+            </div>
+
             {authError && (
               <div className="flex items-center gap-2 text-red-400 text-xs font-bold bg-red-950/30 p-3 rounded-lg border border-red-900/50">
                 <AlertTriangle size={14} />
@@ -261,8 +428,13 @@ const AdminHome: React.FC = () => {
               </div>
             )}
 
-            <Button type="submit" variant="secondary" className="w-full font-bold py-4 shadow-lg active:scale-95">
-              Acessar Gerenciador
+            <Button
+              type="submit"
+              variant="secondary"
+              className="w-full font-bold py-4 shadow-lg active:scale-95"
+              disabled={authLoading}
+            >
+              {authLoading ? 'Entrando...' : 'Acessar Gerenciador'}
             </Button>
           </form>
         </div>
@@ -285,10 +457,11 @@ const AdminHome: React.FC = () => {
               <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Gestão de Instâncias</p>
             </div>
           </div>
-          <button 
+          <button
             onClick={() => {
               setIsMasterAuthenticated(false);
               sessionStorage.removeItem('master_auth');
+              clearStoredToken(MASTER_TENANT_ID);
               navigate('/');
             }}
             className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-red-900/30 text-slate-300 hover:text-red-400 rounded-lg transition-all text-xs font-bold border border-slate-700"
@@ -315,8 +488,30 @@ const AdminHome: React.FC = () => {
           </Button>
         </div>
 
+        {tenantsError && (
+          <div className="mb-6 p-4 rounded-xl bg-red-950/30 border border-red-900/50 text-red-400 text-sm">
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={20} className="flex-shrink-0 mt-0.5" />
+              <div>
+                <p>{tenantsError}</p>
+                {tenantsError.includes('logado') && (
+                  <button
+                    type="button"
+                    onClick={() => navigate('/')}
+                    className="mt-3 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg transition-colors"
+                  >
+                    Ir para Início e fazer login
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {tenants.map(tenant => (
+          {tenantsLoading ? (
+            <div className="col-span-full text-center py-12 text-slate-500">Carregando clientes...</div>
+          ) : (
+          tenants.map(tenant => (
             <div 
               key={tenant.id}
               className="group bg-slate-800/50 hover:bg-slate-800 border border-slate-700 hover:border-indigo-500/50 rounded-2xl p-6 transition-all relative overflow-hidden"
@@ -345,7 +540,9 @@ const AdminHome: React.FC = () => {
               </div>
 
               <h3 className="text-xl font-bold text-white mb-1">{tenant.name}</h3>
-              <p className="text-sm text-slate-400 font-mono mb-6">/{tenant.id}</p>
+              <p className="text-sm text-slate-400 font-mono mb-6" title="Link da instância">
+                {tenant.urlInstancia ? `/${tenant.urlInstancia}` : `ID: ${tenant.id}`}
+              </p>
 
               <div className="flex items-center justify-between mt-auto pt-4 border-t border-slate-700/50">
                 <span className="text-xs text-slate-500 font-medium flex items-center gap-1.5">
@@ -353,16 +550,17 @@ const AdminHome: React.FC = () => {
                   Online
                 </span>
                 <button 
-                   onClick={() => navigate(`/${tenant.id}`)}
+                   onClick={() => navigate(`/${tenant.urlInstancia || tenant.id}`, { state: { clientId: tenant.id } })}
                    className="flex items-center gap-1 text-sm font-bold text-indigo-400 hover:text-indigo-300 transition-colors"
                 >
                   Acessar App <ArrowRight size={16} />
                 </button>
               </div>
             </div>
-          ))}
+          ))
+          )}
           
-           {tenants.length === 0 && (
+           {!tenantsLoading && tenants.length === 0 && (
             <div 
               onClick={() => setIsCreating(true)}
               className="col-span-full border-2 border-dashed border-slate-700 hover:border-slate-600 rounded-2xl p-12 flex flex-col items-center justify-center text-center cursor-pointer transition-colors bg-slate-900/50"
@@ -375,42 +573,86 @@ const AdminHome: React.FC = () => {
         </div>
       </div>
 
-      {/* MODAL CRIAR INSTÂNCIA */}
+      {/* MODAL CRIAR CLIENTE */}
       {isCreating && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-2xl p-8 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-2xl p-8 shadow-2xl my-8">
             <h3 className="text-2xl font-bold text-white mb-6">Novo Cliente</h3>
-            <div className="space-y-4">
+            <form onSubmit={newClienteForm.handleSubmit(onCreateCliente)} className="space-y-4">
               <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-400 uppercase">Nome da Entidade</label>
-                <input 
+                <label className="text-xs font-bold text-slate-400 uppercase">Nome fantasia</label>
+                <input
                   type="text"
                   placeholder="Ex: Prefeitura Municipal..."
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-indigo-500 transition-colors"
-                  value={newOrgName}
-                  onChange={(e) => setNewOrgName(e.target.value)}
+                  {...newClienteForm.register('nome_fantasia', { required: 'Obrigatório' })}
+                />
+                {newClienteForm.formState.errors.nome_fantasia && (
+                  <p className="text-xs text-red-400">{newClienteForm.formState.errors.nome_fantasia.message}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase">Razão social</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Município de..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-indigo-500 transition-colors"
+                  {...newClienteForm.register('razao_social')}
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-400 uppercase">Slug (URL)</label>
-                <input 
+                <label className="text-xs font-bold text-slate-400 uppercase">CNPJ (14 dígitos)</label>
+                <input
                   type="text"
-                  placeholder="nome-do-municipio"
+                  placeholder="00.000.000/0001-00 ou apenas números"
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-indigo-500 transition-colors"
-                  value={newOrgSlug}
-                  onChange={(e) => setNewOrgSlug(e.target.value.toLowerCase())}
+                  {...newClienteForm.register('cnpj', { required: 'CNPJ com 14 dígitos' })}
                 />
               </div>
-              <div className="p-4 bg-indigo-900/20 border border-indigo-500/30 rounded-xl text-xs text-indigo-300">
-                <p className="font-bold mb-1">Acesso Inicial:</p>
-                <p>Usuário: <strong>admin</strong></p>
-                <p>Senha: <strong>123</strong></p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-400 uppercase">UF</label>
+                  <input
+                    type="text"
+                    placeholder="MA"
+                    maxLength={2}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-indigo-500 transition-colors uppercase"
+                    {...newClienteForm.register('uf')}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-400 uppercase">Data início</label>
+                  <input
+                    type="date"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-indigo-500 transition-colors"
+                    {...newClienteForm.register('data_inicio')}
+                  />
+                </div>
               </div>
-            </div>
-            <div className="flex gap-3 mt-8">
-              <button onClick={() => setIsCreating(false)} className="flex-1 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-800 transition-colors">Cancelar</button>
-              <button onClick={handleCreateTenant} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-xl font-bold transition-colors shadow-lg">Criar Banco</button>
-            </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase">Data fim</label>
+                <input
+                  type="date"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-indigo-500 transition-colors"
+                  {...newClienteForm.register('data_fim')}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase">URL instância</label>
+                <input
+                  type="text"
+                  placeholder="https://cliente.gestao.com.br"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-indigo-500 transition-colors"
+                  {...newClienteForm.register('url_instancia')}
+                />
+              </div>
+              <div className="flex gap-3 mt-8">
+                <button type="button" onClick={() => setIsCreating(false)} disabled={createLoading} className="flex-1 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-800 transition-colors disabled:opacity-50">Cancelar</button>
+                <button type="submit" disabled={createLoading} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-xl font-bold transition-colors shadow-lg disabled:opacity-50">
+                  {createLoading ? 'Criando...' : 'Criar cliente'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -570,61 +812,59 @@ const AdminHome: React.FC = () => {
                     </table>
                   </div>
 
-                  {/* Formulário Novo Usuário */}
+                  {/* Formulário Novo Usuário — doc: POST /usuarios/ UsuarioCreate */}
                   <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
                     <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
                       <UserPlus size={20} className="text-indigo-400" /> 
                       Adicionar Usuário ao Banco
                     </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                      <div className="space-y-1">
-                        <label className="text-xs text-slate-400 font-bold uppercase">Nome Completo</label>
-                        <input 
-                          type="text" 
-                          className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-white"
-                          value={newUserForm.name}
-                          onChange={(e) => setNewUserForm({...newUserForm, name: e.target.value})}
-                          placeholder="Ex: João Silva"
-                        />
+                    <form onSubmit={newUserFormHook.handleSubmit(onAddUser)} className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                        <div className="space-y-1">
+                          <label className="text-xs text-slate-400 font-bold uppercase">Nome Completo</label>
+                          <input 
+                            type="text" 
+                            className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-white"
+                            placeholder="Ex: João Silva"
+                            {...newUserFormHook.register('name', { required: 'Obrigatório' })}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-slate-400 font-bold uppercase">Login</label>
+                          <input 
+                            type="text" 
+                            className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-white"
+                            placeholder="Ex: joao.silva"
+                            {...newUserFormHook.register('username', { required: 'Obrigatório' })}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-slate-400 font-bold uppercase">Senha</label>
+                          <input 
+                            type="password" 
+                            className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-white"
+                            placeholder="***"
+                            {...newUserFormHook.register('password', { required: 'Obrigatório' })}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-slate-400 font-bold uppercase">Perfil</label>
+                          <select 
+                            className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-white"
+                            {...newUserFormHook.register('role')}
+                          >
+                            <option value="viewer">Visualizador</option>
+                            <option value="admin">Administrador</option>
+                          </select>
+                        </div>
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-xs text-slate-400 font-bold uppercase">Login</label>
-                        <input 
-                          type="text" 
-                          className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-white"
-                          value={newUserForm.username}
-                          onChange={(e) => setNewUserForm({...newUserForm, username: e.target.value})}
-                          placeholder="Ex: joao.silva"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs text-slate-400 font-bold uppercase">Senha</label>
-                        <input 
-                          type="text" 
-                          className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-white"
-                          value={newUserForm.password}
-                          onChange={(e) => setNewUserForm({...newUserForm, password: e.target.value})}
-                          placeholder="***"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs text-slate-400 font-bold uppercase">Perfil</label>
-                        <select 
-                          className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-white"
-                          value={newUserForm.role}
-                          onChange={(e) => setNewUserForm({...newUserForm, role: e.target.value})}
-                        >
-                          <option value="viewer">Visualizador</option>
-                          <option value="admin">Administrador</option>
-                        </select>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={handleAddUser}
-                      className="mt-4 w-full bg-slate-700 hover:bg-indigo-600 text-white py-3 rounded-xl font-bold transition-colors"
-                    >
-                      Criar Credencial
-                    </button>
+                      <button 
+                        type="submit"
+                        className="mt-4 w-full bg-slate-700 hover:bg-indigo-600 text-white py-3 rounded-xl font-bold transition-colors"
+                      >
+                        Criar Credencial
+                      </button>
+                    </form>
                   </div>
                 </div>
               )}

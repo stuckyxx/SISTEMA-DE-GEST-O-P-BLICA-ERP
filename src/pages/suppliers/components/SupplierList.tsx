@@ -11,9 +11,10 @@ import { Supplier } from '../../../types';
 interface SupplierListProps {
   suppliers: Supplier[];
   onDelete: (id: string) => void;
+  onShowDetails: (supplier: Supplier) => void;
 }
 
-export const SupplierList: React.FC<SupplierListProps> = ({ suppliers, onDelete }) => {
+export const SupplierList: React.FC<SupplierListProps> = ({ suppliers, onDelete, onShowDetails }) => {
   if (suppliers.length === 0) {
     return (
       <div className="py-32 flex flex-col items-center justify-center text-slate-400 bg-white dark:bg-slate-900 rounded-[2.5rem] border border-dashed border-slate-200 dark:border-slate-800 shadow-inner">
@@ -64,7 +65,12 @@ export const SupplierList: React.FC<SupplierListProps> = ({ suppliers, onDelete 
 
           <div className="mt-6 pt-6 border-t border-slate-50 dark:border-slate-800 flex items-center justify-between relative">
             <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ativo no Sistema</div>
-            <button className="text-blue-600 dark:text-blue-400 font-bold text-xs hover:underline">Detalhes</button>
+            <button 
+              onClick={() => onShowDetails(supplier)}
+              className="text-blue-600 dark:text-blue-400 font-bold text-xs hover:underline"
+            >
+              Detalhes
+            </button>
           </div>
         </div>
       ))}
