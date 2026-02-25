@@ -17,6 +17,7 @@ export const UNIT_OPTIONS = [
   { sigla: 'FRASCO', descricao: 'FRASCO' },
   { sigla: 'GALAO', descricao: 'GALAO' },
   { sigla: 'GRAMA', descricao: 'GRAMA' },
+  { sigla: 'HORAS', descricao: 'HORAS' },
   { sigla: 'KIT', descricao: 'KIT' },
   { sigla: 'LATA', descricao: 'LATA' },
   { sigla: 'LITRO', descricao: 'LITRO' },
